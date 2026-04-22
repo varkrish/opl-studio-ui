@@ -30,6 +30,7 @@ import {
   SearchIcon,
   SyncAltIcon,
   CubesIcon,
+  ExternalLinkAltIcon,
 } from '@patternfly/react-icons';
 import { getSkills, querySkills, reloadSkills } from '../api/client';
 import type { SkillInfo, SkillSearchResult } from '../types';
@@ -132,7 +133,7 @@ const Skills: React.FC = () => {
               {skills.length > 0 && ` ${skills.length} skills loaded.`}
             </p>
           </SplitItem>
-          <SplitItem>
+          <SplitItem style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <Button
               variant="secondary"
               icon={<SyncAltIcon />}
@@ -141,6 +142,17 @@ const Skills: React.FC = () => {
               isDisabled={reloading || !available}
             >
               Reload Index
+            </Button>
+            <Button
+              variant="primary"
+              icon={<ExternalLinkAltIcon />}
+              iconPosition="end"
+              component="a"
+              href={`${import.meta.env.VITE_SKILL_MANAGER_URL ?? 'http://localhost:8091'}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Manage Skills
             </Button>
           </SplitItem>
         </Split>
