@@ -21,7 +21,7 @@ import {
   getJobProgress,
   getRefinementHistory,
 } from '../api/client';
-import type { Refinement } from '../types';
+import type { Refinement, RefineScope } from '../types';
 import axios from 'axios';
 
 /* ─── Props ──────────────────────────────────────────────────────────── */
@@ -31,6 +31,10 @@ interface RefineChatProps {
   selectedFile: { path: string; content: string } | null;
   /** The original vision/prompt used to create the selected job */
   jobVision: string | null;
+  /** JIRA issue key when job is a fix intake (work_intent=fix) */
+  jiraIssueKey?: string | null;
+  /** When true (e.g. deep link from import flow), open the panel once after history loads */
+  welcomeImport?: boolean;
   /** Called after a successful refinement so Files can reload tree / content */
   onRefineComplete?: () => void;
 }
@@ -123,10 +127,14 @@ const RefineChat: React.FC<RefineChatProps> = ({
   selectedJobId,
   selectedFile,
   jobVision,
+  jiraIssueKey = null,
+  welcomeImport = false,
   onRefineComplete,
 }) => {
   const [open, setOpen] = useState(false);
+  const welcomeImportConsumed = useRef(false);
   const [prompt, setPrompt] = useState('');
+  const [refineScope, setRefineScope] = useState<RefineScope>('impact');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRefining, setIsRefining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +154,15 @@ const RefineChat: React.FC<RefineChatProps> = ({
       const msgs: ChatMessage[] = [];
 
       // 1. Original vision as system welcome
+      if (jiraIssueKey) {
+        msgs.push({
+          id: 'sys-jira-fix',
+          role: 'system',
+          text: `JIRA fix job: ${jiraIssueKey}`,
+          status: 'info',
+          timestamp: new Date(),
+        });
+      }
       if (jobVision) {
         msgs.push({
           id: 'sys-vision',
@@ -205,10 +222,13 @@ const RefineChat: React.FC<RefineChatProps> = ({
           });
         } else {
           // No history — show a helpful getting-started message
+          const importHint = jobVision?.startsWith('[Import]');
           msgs.push({
             id: 'sys-welcome',
             role: 'system',
-            text: 'No refinements yet. Describe a change below and I\'ll update the code for you.',
+            text: importHint
+              ? '**Import & Iterate:** This codebase was analyzed (see tech_stack.md). Describe changes below — with a file selected for focused edits, or none for a multi-file pass using enhanced tools (tests, smoke checks, git) on the server.'
+              : 'No refinements yet. Describe a change below and I\'ll update the code for you.',
             status: 'info',
             timestamp: new Date(),
           });
@@ -226,7 +246,30 @@ const RefineChat: React.FC<RefineChatProps> = ({
       setMessages(msgs);
       setHistoryLoaded(true);
     })();
-  }, [selectedJobId, jobVision]);
+  }, [selectedJobId, jobVision, jiraIssueKey]);
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setRefineScope('project');
+    } else if (refineScope === 'project') {
+      setRefineScope('impact');
+    }
+  }, [selectedFile?.path]);
+
+  const describeScope = (scope: RefineScope, filePath?: string): string => {
+    if (!filePath) return 'Entire project';
+    if (scope === 'file') return `This file only: ${filePath}`;
+    if (scope === 'impact') return `Primary + related files: ${filePath}`;
+    return 'Entire project';
+  };
+
+  /* Open refine drawer once when coming from Import & Iterate completion link */
+  useEffect(() => {
+    if (welcomeImport && selectedJobId && historyLoaded && !welcomeImportConsumed.current) {
+      welcomeImportConsumed.current = true;
+      setOpen(true);
+    }
+  }, [welcomeImport, selectedJobId, historyLoaded]);
 
   /* ── Auto-scroll to bottom ──────────────────────────────────────── */
   useEffect(() => {
@@ -271,6 +314,7 @@ const RefineChat: React.FC<RefineChatProps> = ({
 
     const trimmedPrompt = prompt.trim();
     const scopePath = selectedFile?.path;
+    const effectiveScope: RefineScope = scopePath ? refineScope : 'project';
 
     // User message
     const userMsg: ChatMessage = {
@@ -284,9 +328,7 @@ const RefineChat: React.FC<RefineChatProps> = ({
     const scopeInfo: ChatMessage = {
       id: `sys-scope-${Date.now()}`,
       role: 'system',
-      text: scopePath
-        ? `Targeting: ${scopePath}`
-        : 'Targeting: entire project',
+      text: describeScope(effectiveScope, scopePath),
       status: 'info',
       timestamp: new Date(),
     };
@@ -307,7 +349,7 @@ const RefineChat: React.FC<RefineChatProps> = ({
     setIsRefining(true);
 
     try {
-      await refineJob(selectedJobId, trimmedPrompt, scopePath);
+      await refineJob(selectedJobId, trimmedPrompt, scopePath, { scope: effectiveScope });
 
       // Progress feedback messages
       const progressSteps = [
@@ -417,8 +459,11 @@ const RefineChat: React.FC<RefineChatProps> = ({
     }
   };
 
-  /* ── Scope label ────────────────────────────────────────────────── */
-  const scopeLabel = selectedFile ? selectedFile.path : 'whole project';
+  /* ── Scope label for header chip ─────────────────────────────────── */
+  const headerScopeText = describeScope(
+    selectedFile ? refineScope : 'project',
+    selectedFile?.path,
+  );
 
   /* ── Render a single message ────────────────────────────────────── */
   const renderMessage = (msg: ChatMessage) => {
@@ -712,7 +757,7 @@ const RefineChat: React.FC<RefineChatProps> = ({
                   borderRadius: 12,
                 }}
               >
-                {scopeLabel}
+                {headerScopeText}
               </span>
             </div>
           )}
@@ -777,6 +822,28 @@ const RefineChat: React.FC<RefineChatProps> = ({
               backgroundColor: '#fff',
             }}
           >
+            {selectedFile && (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                {(['impact', 'file', 'project'] as RefineScope[]).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setRefineScope(s)}
+                    style={{
+                      fontSize: '0.72rem',
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      border: refineScope === s ? '1px solid #EE0000' : '1px solid #D2D2D2',
+                      background: refineScope === s ? '#FEF3F3' : '#fff',
+                      color: refineScope === s ? '#EE0000' : '#6A6E73',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {s === 'impact' ? 'Primary + related' : s === 'file' ? 'This file only' : 'Whole project'}
+                  </button>
+                ))}
+              </div>
+            )}
             {error && (
               <Alert
                 variant="danger"

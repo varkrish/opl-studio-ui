@@ -13,6 +13,7 @@ import type {
   Refinement,
   SkillInfo,
   SkillSearchResult,
+  PlanReviewData,
 } from '../types';
 import { activeToken } from '../auth/OAuthProvider';
 
@@ -67,7 +68,8 @@ export async function createJob(
   documents?: File[],
   githubUrls?: string[],
   backend?: string,
-  teamId?: string
+  teamId?: string,
+  autoApprovePlan?: boolean,
 ): Promise<{ job_id: string; status: string; documents: number; github_repos: number }> {
   const hasFiles = documents && documents.length > 0;
   const hasGithub = githubUrls && githubUrls.length > 0;
@@ -77,6 +79,7 @@ export async function createJob(
     formData.append('vision', vision);
     if (backend) formData.append('backend', backend);
     if (teamId) formData.append('team_id', teamId);
+    if (autoApprovePlan) formData.append('auto_approve_plan', 'true');
     if (hasFiles) {
       documents!.forEach((file) => formData.append('documents', file));
     }
@@ -96,7 +99,7 @@ export async function createJob(
     job_id: string; status: string; documents: number; github_repos: number;
   }>(
     '/api/jobs',
-    { vision, backend, team_id: teamId }
+    { vision, backend, team_id: teamId, auto_approve_plan: autoApprovePlan ?? false }
   );
   return data;
 }

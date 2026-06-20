@@ -26,12 +26,23 @@ import {
   GithubIcon,
   PlusCircleIcon,
 } from '@patternfly/react-icons';
-import { createJob, createMigrationJob, createRefactorJob, getBackends, startMigration, startRefactor, getMigrationStatus } from '../api/client';
+import {
+  createJob,
+  createMigrationJob,
+  createRefactorJob,
+  createImportJob,
+  getBackends,
+  startMigration,
+  startRefactor,
+  startImportAnalysis,
+  getMigrationStatus,
+} from '../api/client';
 import type { BackendOption } from '../types';
 import BuildProgress from '../components/BuildProgress';
+import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
 import { useAuth } from '../auth/OAuthProvider';
 
-type ProjectMode = 'build' | 'migration' | 'refactor';
+type ProjectMode = 'build' | 'migration' | 'refactor' | 'import';
 
 /* ── Constants ────────────────────────────────────────────────────────────── */
 const ALLOWED_EXT = new Set([
@@ -64,13 +75,6 @@ function formatSize(bytes: number): string {
 /* ── Component ────────────────────────────────────────────────────────────── */
 const Landing: React.FC = () => {
   const navigate = useNavigate();
-  const { teams } = useAuth();
-
-  // Team selection
-  const [selectedTeam, setSelectedTeam] = useState<string | undefined>(() => {
-    return teams.length === 1 ? teams[0] : undefined;
-  });
-  const [teamSelectOpen, setTeamSelectOpen] = useState(false);
 
   // Project mode
   const [projectMode, setProjectMode] = useState<ProjectMode>('build');
@@ -92,15 +96,31 @@ const Landing: React.FC = () => {
   const mtaReportRef = useRef<HTMLInputElement>(null);
   const [targetStack, setTargetStack] = useState('');
   const [techPreferences, setTechPreferences] = useState('');
+  /** Optional context for Import & Iterate jobs (stored in job vision / tech_stack LLM). */
+  const [importDescription, setImportDescription] = useState('');
   const [sourceArchive, setSourceArchive] = useState<File | null>(null);
   const sourceArchiveRef = useRef<HTMLInputElement>(null);
   const [mtaDragActive, setMtaDragActive] = useState(false);
   const [srcDragActive, setSrcDragActive] = useState(false);
 
+  // Team scoping — populated from the JWT by useAuth
+  const { teams } = useAuth();
+  const [selectedTeam, setSelectedTeam] = useState<string | undefined>(undefined);
+  const [teamSelectOpen, setTeamSelectOpen] = useState(false);
+
   // Backend selection
   const [backends, setBackends] = useState<BackendOption[]>([]);
   const [selectedBackend, setSelectedBackend] = useState('opl-ai-team');
   const [backendSelectOpen, setBackendSelectOpen] = useState(false);
+
+  // Workflow prefs — controls per-job auto-approve override
+  const { prefs } = useWorkflowPrefs();
+  // per-job: true means skip review even if server plan_review is enabled
+  const [reviewPlanOverride, setReviewPlanOverride] = useState<boolean | null>(null);
+  // resolved: null → follow global pref; true/false → explicit per-job choice
+  const effectiveAutoApprove = reviewPlanOverride !== null
+    ? reviewPlanOverride
+    : prefs.autoApprovePlan;
 
   // Build state — when set, we switch to split view
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -247,6 +267,7 @@ const Landing: React.FC = () => {
         githubUrls.length > 0 ? githubUrls : undefined,
         selectedBackend,
         selectedTeam,
+        effectiveAutoApprove,
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -308,7 +329,6 @@ const Landing: React.FC = () => {
         mtaReportFiles,
         githubUrls.length > 0 ? githubUrls : undefined,
         selectedBackend,
-        selectedTeam,
       );
 
       console.log('[Migration] Job created:', result);
@@ -372,8 +392,7 @@ const Landing: React.FC = () => {
         jobLabel,
         sourceArchive,
         githubUrls.length > 0 ? githubUrls : undefined,
-        selectedBackend,
-        selectedTeam,
+        selectedBackend
       );
 
       console.log('[Refactor] Job created:', result);
@@ -397,6 +416,48 @@ const Landing: React.FC = () => {
     }
   };
 
+  const handleCreateImportProject = async () => {
+    if (!sourceArchive && githubUrls.length === 0) {
+      setError('Please upload a ZIP of your project or add a GitHub repo');
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      const srcName = sourceArchive
+        ? sourceArchive.name
+        : (githubUrls.length > 0
+          ? githubUrls.map((u) => u.replace(/\/+$/, '').split('/').pop()).join(', ')
+          : '');
+      const desc = importDescription.trim();
+      const jobLabel = desc
+        ? `[Import] ${srcName} — ${desc}`
+        : `[Import] ${srcName}`;
+
+      const result = await createImportJob(
+        jobLabel,
+        sourceArchive,
+        githubUrls.length > 0 ? githubUrls : undefined,
+        selectedBackend,
+      );
+      setSubmittedVision(desc || `Imported: ${srcName}`);
+      setActiveJobId(result.job_id);
+
+      setTimeout(async () => {
+        try {
+          await startImportAnalysis(result.job_id);
+        } catch (err) {
+          console.error('Auto-trigger import analysis failed:', err);
+        }
+      }, 1500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to create import project: ${msg}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const handleNewProject = () => {
     setActiveJobId(null);
     setSubmittedVision('');
@@ -408,6 +469,7 @@ const Landing: React.FC = () => {
     setSourceArchive(null);
     setTargetStack('');
     setTechPreferences('');
+    setImportDescription('');
   };
 
   const examplePrompts = [
@@ -574,6 +636,31 @@ const Landing: React.FC = () => {
                         </div>
                       )}
                     </>
+                  ) : projectMode === 'import' ? (
+                    <>
+                      Import started. We're detecting languages and frameworks, generating tech_stack.md, and indexing sources.
+                      When analysis finishes, open <strong>Files</strong> and use <strong>Refine</strong> for natural-language edits (tests &amp; git tools enabled).
+                      <div style={{
+                        marginTop: '0.75rem', padding: '0.75rem',
+                        background: 'white', borderRadius: '8px',
+                        border: '1px solid #C3E6CB', fontSize: '0.8125rem',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <FileCodeIcon style={{ color: '#3E8635' }} />
+                          <span style={{ fontWeight: 600 }}>Import &amp; Iterate</span>
+                          <span style={{ color: '#6A6E73' }}>— analysis, then prompt-based coding</span>
+                        </div>
+                      </div>
+                      {activeJobId && (
+                        <div style={{ marginTop: '0.5rem' }}>
+                          <Button variant="link" size="sm"
+                            onClick={() => navigate(`/files?job=${activeJobId}`)}
+                            style={{ fontSize: '0.8125rem', color: '#3E8635', padding: 0 }}>
+                            Open Files →
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <>
                       Got it! I'm assembling the crew and starting to build your project.
@@ -702,6 +789,14 @@ const Landing: React.FC = () => {
                   backgroundClip: 'text',
                 }}>We build it.</span>
               </>
+            ) : projectMode === 'import' ? (
+              <>Bring your code.{' '}
+                <span style={{
+                  background: 'linear-gradient(135deg, #3E8635, #1E4F2F)',
+                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                }}>We analyze &amp; you iterate.</span>
+              </>
             ) : (
               <>Upload.{' '}
                 <span style={{
@@ -715,16 +810,19 @@ const Landing: React.FC = () => {
           <p style={{ fontSize: '0.9375rem', color: '#72767B', marginBottom: '1rem', lineHeight: 1.5 }}>
             {projectMode === 'build'
               ? 'From idea to production-ready code, powered by 6 AI agents.'
-              : 'Upload your MTA report and legacy code — AI applies every change.'}
+              : projectMode === 'import'
+                ? 'Upload a ZIP or clone from GitHub — we detect the stack and index the repo. Then describe edits in the Files view (Refine).'
+                : 'Upload your MTA report and legacy code — AI applies every change.'}
           </p>
 
           {/* ── Mode toggle ──────────────────────────────────────────────── */}
           <div style={{
-            display: 'inline-flex', borderRadius: '10px', overflow: 'hidden',
-            border: '1px solid #D2D2D2', marginBottom: '1.25rem', alignSelf: 'flex-start',
+            display: 'flex', flexWrap: 'wrap', borderRadius: '10px', overflow: 'hidden',
+            border: '1px solid #D2D2D2', marginBottom: '1.25rem', alignSelf: 'flex-start', maxWidth: '100%',
           }}>
             {([
               { key: 'build' as ProjectMode, label: 'Build New Project', icon: <RocketIcon style={{ fontSize: '0.75rem' }} /> },
+              { key: 'import' as ProjectMode, label: 'Import & Iterate', icon: <FileCodeIcon style={{ fontSize: '0.75rem' }} /> },
               { key: 'migration' as ProjectMode, label: 'MTA Migration', icon: <ArrowRightIcon style={{ fontSize: '0.75rem' }} /> },
               { key: 'refactor' as ProjectMode, label: 'Refactor Agent', icon: <CodeIcon style={{ fontSize: '0.75rem' }} /> },
             ]).map((m) => (
@@ -737,7 +835,7 @@ const Landing: React.FC = () => {
                   fontSize: '0.8125rem', fontWeight: 600,
                   fontFamily: '"Red Hat Text", sans-serif',
                   background: projectMode === m.key
-                    ? (m.key === 'build' ? '#EE0000' : '#0066CC')
+                    ? (m.key === 'build' ? '#EE0000' : m.key === 'import' ? '#3E8635' : '#0066CC')
                     : 'white',
                   color: projectMode === m.key ? 'white' : '#72767B',
                   transition: 'all 0.2s',
@@ -784,60 +882,30 @@ const Landing: React.FC = () => {
                   marginTop: '0.75rem', paddingTop: '0.75rem',
                   borderTop: '1px solid #F0F0F0',
                 }}>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    {/* Team Selector */}
-                    {teams.length > 0 && (
-                      <Select
-                        toggle={(toggleRef) => (
-                          <MenuToggle ref={toggleRef}
-                            onClick={() => setTeamSelectOpen(!teamSelectOpen)}
-                            isExpanded={teamSelectOpen}
-                            style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
-                          >
-                            {selectedTeam || 'Personal (No team)'}
-                          </MenuToggle>
-                        )}
-                        onSelect={(_e, s) => { setSelectedTeam(s as string || undefined); setTeamSelectOpen(false); }}
-                        selected={selectedTeam || ''}
-                        isOpen={teamSelectOpen}
-                        onOpenChange={setTeamSelectOpen}
-                        aria-label="Select team"
+                  <Select
+                    toggle={(toggleRef) => (
+                      <MenuToggle ref={toggleRef}
+                        onClick={() => setBackendSelectOpen(!backendSelectOpen)}
+                        isExpanded={backendSelectOpen}
+                        style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '150px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
                       >
-                        <SelectList>
-                          <SelectOption value="">Personal (No team)</SelectOption>
-                          {teams.map((t) => (
-                            <SelectOption key={t} value={t}>{t}</SelectOption>
-                          ))}
-                        </SelectList>
-                      </Select>
+                        {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
+                      </MenuToggle>
                     )}
-
-                    {/* Backend Selector */}
-                    <Select
-                      toggle={(toggleRef) => (
-                        <MenuToggle ref={toggleRef}
-                          onClick={() => setBackendSelectOpen(!backendSelectOpen)}
-                          isExpanded={backendSelectOpen}
-                          style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
-                        >
-                          {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
-                        </MenuToggle>
-                      )}
-                      onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
-                      selected={selectedBackend}
-                      isOpen={backendSelectOpen}
-                      onOpenChange={setBackendSelectOpen}
-                      aria-label="Select agentic system"
-                    >
-                      <SelectList>
-                        {backends.map((b) => (
-                          <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
-                            {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
-                          </SelectOption>
-                        ))}
-                      </SelectList>
-                    </Select>
-                  </div>
+                    onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
+                    selected={selectedBackend}
+                    isOpen={backendSelectOpen}
+                    onOpenChange={setBackendSelectOpen}
+                    aria-label="Select agentic system"
+                  >
+                    <SelectList>
+                      {backends.map((b) => (
+                        <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
+                          {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
+                        </SelectOption>
+                      ))}
+                    </SelectList>
+                  </Select>
                   <Button variant="primary" onClick={handleCreateProject}
                     isLoading={creating} isDisabled={!vision.trim() || creating}
                     style={{
@@ -847,6 +915,47 @@ const Landing: React.FC = () => {
                     icon={creating ? <Spinner size="sm" /> : <RocketIcon />} iconPosition="end">
                     {creating ? 'Creating...' : 'Start Building'}
                   </Button>
+                </div>
+
+                {/* Per-job plan review toggle */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  marginTop: '0.75rem', flexWrap: 'wrap',
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setReviewPlanOverride(!effectiveAutoApprove ? null : false)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.4rem',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: '0.2rem 0.5rem', borderRadius: '6px',
+                      fontSize: '0.8rem', color: effectiveAutoApprove ? '#3E8635' : '#6A6E73',
+                      fontFamily: '"Red Hat Text", sans-serif',
+                    }}
+                    title={effectiveAutoApprove
+                      ? 'Auto-approve is ON — click to require plan review for this job'
+                      : 'Click to skip plan review for this job (auto-approve)'}
+                  >
+                    <span style={{
+                      display: 'inline-block', width: '12px', height: '12px',
+                      borderRadius: '50%',
+                      background: effectiveAutoApprove ? '#3E8635' : '#C7C7C7',
+                      flexShrink: 0,
+                    }} />
+                    {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
+                    {reviewPlanOverride !== null && (
+                      <span style={{ color: '#0066CC', fontSize: '0.7rem' }}>
+                        (overridden)
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setReviewPlanOverride(null); }}
+                          style={{ marginLeft: '0.25rem', border: 'none', background: 'none', cursor: 'pointer', color: '#0066CC', fontSize: '0.7rem' }}
+                        >
+                          reset
+                        </button>
+                      </span>
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -1134,60 +1243,30 @@ const Landing: React.FC = () => {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      {/* Team Selector */}
-                      {teams.length > 0 && (
-                        <Select
-                          toggle={(toggleRef) => (
-                            <MenuToggle ref={toggleRef}
-                              onClick={() => setTeamSelectOpen(!teamSelectOpen)}
-                              isExpanded={teamSelectOpen}
-                              style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
-                            >
-                              {selectedTeam || 'Personal (No team)'}
-                            </MenuToggle>
-                          )}
-                          onSelect={(_e, s) => { setSelectedTeam(s as string || undefined); setTeamSelectOpen(false); }}
-                          selected={selectedTeam || ''}
-                          isOpen={teamSelectOpen}
-                          onOpenChange={setTeamSelectOpen}
-                          aria-label="Select team"
+                    <Select
+                      toggle={(toggleRef) => (
+                        <MenuToggle ref={toggleRef}
+                          onClick={() => setBackendSelectOpen(!backendSelectOpen)}
+                          isExpanded={backendSelectOpen}
+                          style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '150px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
                         >
-                          <SelectList>
-                            <SelectOption value="">Personal (No team)</SelectOption>
-                            {teams.map((t) => (
-                              <SelectOption key={t} value={t}>{t}</SelectOption>
-                            ))}
-                          </SelectList>
-                        </Select>
+                          {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
+                        </MenuToggle>
                       )}
-
-                      {/* Backend Selector */}
-                      <Select
-                        toggle={(toggleRef) => (
-                          <MenuToggle ref={toggleRef}
-                            onClick={() => setBackendSelectOpen(!backendSelectOpen)}
-                            isExpanded={backendSelectOpen}
-                            style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
-                          >
-                            {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
-                          </MenuToggle>
-                        )}
-                        onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
-                        selected={selectedBackend}
-                        isOpen={backendSelectOpen}
-                        onOpenChange={setBackendSelectOpen}
-                        aria-label="Select agentic system"
-                      >
-                        <SelectList>
-                          {backends.map((b) => (
-                            <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
-                              {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
-                            </SelectOption>
-                          ))}
-                        </SelectList>
-                      </Select>
-                    </div>
+                      onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
+                      selected={selectedBackend}
+                      isOpen={backendSelectOpen}
+                      onOpenChange={setBackendSelectOpen}
+                      aria-label="Select agentic system"
+                    >
+                      <SelectList>
+                        {backends.map((b) => (
+                          <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
+                            {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
+                          </SelectOption>
+                        ))}
+                      </SelectList>
+                    </Select>
                     <Button variant="primary" onClick={handleCreateMigrationProject}
                       isLoading={creating}
                       isDisabled={!canSubmitMigration}
@@ -1345,35 +1424,7 @@ const Landing: React.FC = () => {
                 )}
               </div>
 
-              <div style={{ paddingTop: '0.75rem', borderTop: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  {/* Team Selector */}
-                  {teams.length > 0 && (
-                    <Select
-                      toggle={(toggleRef) => (
-                        <MenuToggle ref={toggleRef}
-                          onClick={() => setTeamSelectOpen(!teamSelectOpen)}
-                          isExpanded={teamSelectOpen}
-                          style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
-                        >
-                          {selectedTeam || 'Personal (No team)'}
-                        </MenuToggle>
-                      )}
-                      onSelect={(_e, s) => { setSelectedTeam(s as string || undefined); setTeamSelectOpen(false); }}
-                      selected={selectedTeam || ''}
-                      isOpen={teamSelectOpen}
-                      onOpenChange={setTeamSelectOpen}
-                      aria-label="Select team"
-                    >
-                      <SelectList>
-                        <SelectOption value="">Personal (No team)</SelectOption>
-                        {teams.map((t) => (
-                          <SelectOption key={t} value={t}>{t}</SelectOption>
-                        ))}
-                      </SelectList>
-                    </Select>
-                  )}
-                </div>
+              <div style={{ paddingTop: '0.75rem', borderTop: '1px solid #F0F0F0', display: 'flex', justifyContent: 'flex-end' }}>
                 <Button variant="primary" onClick={handleCreateRefactorProject}
                   isLoading={creating}
                   isDisabled={!targetStack.trim() || (!sourceArchive && githubUrls.length === 0)}
@@ -1383,6 +1434,143 @@ const Landing: React.FC = () => {
                   }}
                   icon={creating ? <Spinner size="sm" /> : <CodeIcon />} iconPosition="end">
                   {creating ? 'Starting...' : 'Start Refactor'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          {/* IMPORT & ITERATE                                               */}
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          {projectMode === 'import' && (
+            <div style={{
+              background: 'white', borderRadius: '16px', padding: '1.25rem',
+              boxShadow: '0 2px 16px rgba(0,0,0,0.06)', border: '1px solid #E7E7E7',
+              display: 'flex', flexDirection: 'column', gap: '1rem',
+            }}>
+              <div style={{
+                background: 'linear-gradient(to right, #f3faf3, #e8f5e9)',
+                border: '1px solid #c3e6cb',
+                borderRadius: '12px',
+                padding: '1rem',
+                fontSize: '0.8125rem',
+                color: '#1e4620',
+                lineHeight: 1.5,
+              }}>
+                <strong>First-class import workflow:</strong> source lands in your job workspace, we run tech-stack detection and indexing, then you iterate using <strong>Refine</strong> on the Files page (multi-file edits, pytest, smoke tests, git).
+              </div>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: '0.8125rem', color: '#151515', display: 'block', marginBottom: '0.3rem' }}>
+                  Project description <span style={{ color: '#72767B', fontWeight: 400 }}>(optional)</span>
+                </label>
+                <TextArea
+                  value={importDescription}
+                  onChange={(_e, v) => setImportDescription(v)}
+                  placeholder="e.g. Internal Spring Boot order service — we'll use this for LLM context in tech_stack.md"
+                  style={{ minHeight: '72px', fontSize: '0.9375rem', fontFamily: '"Red Hat Text", sans-serif', resize: 'vertical' }}
+                  aria-label="Import project description"
+                />
+              </div>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: '0.8125rem', color: '#151515', display: 'block', marginBottom: '0.3rem' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <Label color={(sourceArchive || githubUrls.length > 0) ? 'green' : 'blue'} isCompact>1</Label> Source code
+                    {(sourceArchive || githubUrls.length > 0)
+                      ? <span style={{ color: '#3E8635', fontSize: '0.75rem', fontWeight: 400 }}>Ready</span>
+                      : <span style={{ color: '#C9190B', fontSize: '0.75rem', fontWeight: 400 }}>Required</span>
+                    }
+                  </span>
+                </label>
+                <p style={{ fontSize: '0.75rem', color: '#72767B', marginBottom: '0.4rem' }}>
+                  ZIP archive and/or public GitHub URL (same as Refactor).
+                </p>
+                <div
+                  onDragEnter={handleSourceArchiveDrag} onDragLeave={handleSourceArchiveDrag} onDragOver={handleSourceArchiveDrag}
+                  onDrop={handleSourceArchiveDrop}
+                  onClick={() => sourceArchiveRef.current?.click()}
+                  style={{
+                    padding: '0.75rem', border: `2px dashed ${srcDragActive ? '#3E8635' : (sourceArchive ? '#3E8635' : '#D2D2D2')}`,
+                    borderRadius: '8px', background: srcDragActive ? 'rgba(62,134,53,0.02)' : (sourceArchive ? 'rgba(62,134,53,0.02)' : '#FAFAFA'),
+                    cursor: 'pointer', textAlign: 'center', marginBottom: '0.5rem',
+                  }}
+                >
+                  <input ref={sourceArchiveRef} type="file" style={{ display: 'none' }}
+                    accept=".zip"
+                    onChange={(e) => { handleSourceArchive(e.target.files); e.target.value = ''; }} />
+                  <UploadIcon style={{ marginRight: '0.4rem', color: sourceArchive ? '#3E8635' : '#3E8635', fontSize: '0.85rem' }} />
+                  <span style={{ fontSize: '0.8125rem', color: '#3E8635', fontWeight: 500 }}>
+                    {sourceArchive ? 'Replace ZIP' : 'Drop project ZIP here or click to upload'}
+                  </span>
+                </div>
+                {sourceArchive && (
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                    background: 'rgba(62,134,53,0.06)', border: '1px solid rgba(62,134,53,0.3)', borderRadius: '8px',
+                    padding: '0.35rem 0.6rem', marginBottom: '0.5rem',
+                  }}>
+                    <FileCodeIcon style={{ color: '#3E8635', fontSize: '0.85rem' }} />
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: '#151515' }}>{sourceArchive.name}</span>
+                    <button type="button" onClick={() => setSourceArchive(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', color: '#6A6E73' }}><TimesIcon style={{ fontSize: '0.65rem' }} /></button>
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#FAFAFA', border: '1px solid #D2D2D2', borderRadius: '8px', padding: '0.1rem 0.6rem' }}>
+                    <GithubIcon style={{ color: '#151515', fontSize: '0.8rem', flexShrink: 0 }} />
+                    <TextInput value={githubInput} onChange={(_e, v) => { setGithubInput(v); setGithubError(null); }}
+                      placeholder="https://github.com/user/repo" aria-label="GitHub URL"
+                      style={{ border: 'none', background: 'transparent', fontSize: '0.8125rem', padding: '0.35rem 0' }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addGithubUrl(); } }} />
+                  </div>
+                  <Button variant="secondary" size="sm" onClick={addGithubUrl} isDisabled={!githubInput.trim()} icon={<PlusCircleIcon />}>Add</Button>
+                </div>
+                {githubUrls.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.4rem' }}>
+                    {githubUrls.map((url) => (
+                      <span key={url} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: '#F0FFF4', border: '1px solid #C3E6CB', borderRadius: '6px', padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>
+                        <GithubIcon style={{ fontSize: '0.7rem', color: '#3E8635' }} />{extractRepoName(url)}
+                        <button type="button" onClick={() => removeGithubUrl(url)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px', display: 'flex', color: '#6A6E73' }}><TimesIcon style={{ fontSize: '0.65rem' }} /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {githubError && (
+                  <div style={{ fontSize: '0.75rem', color: '#C9190B', marginTop: '0.35rem' }}>{githubError}</div>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #F0F0F0' }}>
+                <Select
+                  toggle={(toggleRef) => (
+                    <MenuToggle ref={toggleRef}
+                      onClick={() => setBackendSelectOpen(!backendSelectOpen)}
+                      isExpanded={backendSelectOpen}
+                      style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '150px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                    >
+                      {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
+                    </MenuToggle>
+                  )}
+                  onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
+                  selected={selectedBackend}
+                  isOpen={backendSelectOpen}
+                  onOpenChange={setBackendSelectOpen}
+                  aria-label="Select agentic system"
+                >
+                  <SelectList>
+                    {backends.map((b) => (
+                      <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
+                        {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
+                      </SelectOption>
+                    ))}
+                  </SelectList>
+                </Select>
+                <Button variant="primary" onClick={handleCreateImportProject}
+                  isLoading={creating}
+                  isDisabled={(!sourceArchive && githubUrls.length === 0) || creating}
+                  style={{
+                    backgroundColor: '#3E8635', border: 'none', fontWeight: 600,
+                    padding: '0.5rem 1.75rem', fontSize: '0.875rem', borderRadius: '10px', color: 'white',
+                  }}
+                  icon={creating ? <Spinner size="sm" /> : <UploadIcon />} iconPosition="end">
+                  {creating ? 'Starting...' : 'Import & Analyze'}
                 </Button>
               </div>
             </div>

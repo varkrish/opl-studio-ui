@@ -17,6 +17,10 @@ import {
   SplitItem,
   Flex,
   FlexItem,
+  ExpandableSection,
+  Label,
+  Modal,
+  ModalVariant,
 } from '@patternfly/react-core';
 import {
   FolderIcon,
@@ -25,9 +29,10 @@ import {
   FileCodeIcon,
   CubeIcon,
   DownloadIcon,
+  SyncAltIcon,
 } from '@patternfly/react-icons';
-import { useSearchParams } from 'react-router-dom';
-import Editor, { type Monaco } from '@monaco-editor/react';
+import { useSearchParams, Link } from 'react-router-dom';
+import Editor, { DiffEditor, type Monaco } from '@monaco-editor/react';
 import { usePolling } from '../hooks/usePolling';
 import {
   getJobs,
@@ -35,6 +40,9 @@ import {
   getFileContent,
   getPreviewUrl,
   downloadJobWorkspace,
+  getRefinementChanges,
+  getRefinementCompare,
+  type MigrationChanges,
 } from '../api/client';
 import { buildFileTree } from '../utils/fileTree';
 import type { JobSummary, FileTreeNode } from '../types';
@@ -119,6 +127,16 @@ const Files: React.FC = () => {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const lastAppliedFileParam = useRef<string | null>(null);
+  const [refinementChanges, setRefinementChanges] = useState<MigrationChanges | null>(null);
+  const [refChangesExpanded, setRefChangesExpanded] = useState(true);
+  const [diffModal, setDiffModal] = useState<{
+    isOpen: boolean;
+    path: string;
+    original: string;
+    modified: string;
+    loading: boolean;
+    error: string | null;
+  }>({ isOpen: false, path: '', original: '', modified: '', loading: false, error: null });
   /* Refine state now lives in RefineChat component */
 
   /** When URL has ?job= & ?file=, open that file in the editor after tree is loaded. */
@@ -187,18 +205,45 @@ const Files: React.FC = () => {
     }
   }, [selectedJobId, searchParams]);
 
+  const loadRefinementChanges = useCallback(async () => {
+    if (!selectedJobId) {
+      setRefinementChanges(null);
+      return;
+    }
+    try {
+      const data = await getRefinementChanges(selectedJobId);
+      setRefinementChanges(data);
+    } catch {
+      setRefinementChanges(null);
+    }
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    void loadRefinementChanges();
+  }, [loadRefinementChanges]);
+
+  const activeJob = jobs.find((j) => j.id === selectedJobId);
+  const isRefining = activeJob?.status === 'running' && activeJob?.current_phase === 'refining';
+
+  useEffect(() => {
+    if (!selectedJobId || !isRefining) return;
+    const t = window.setInterval(() => void loadRefinementChanges(), 3000);
+    return () => window.clearInterval(t);
+  }, [selectedJobId, isRefining, loadRefinementChanges]);
+
   usePolling(loadData, 5000);
 
   /** Called by RefineChat after a successful refinement to reload tree + file */
   const handleRefineComplete = useCallback(async () => {
     await loadData();
+    await loadRefinementChanges();
     if (selectedFile && selectedJobId) {
       try {
         const result = await getFileContent(selectedFile.path, selectedJobId);
         setSelectedFile(result);
       } catch { /* ignore */ }
     }
-  }, [loadData, selectedFile, selectedJobId]);
+  }, [loadData, loadRefinementChanges, selectedFile, selectedJobId]);
 
   const handleFileSelect = async (_event: React.MouseEvent, item: TreeViewDataItem) => {
     // Only handle file clicks (items without children)
@@ -223,6 +268,63 @@ const Files: React.FC = () => {
     loadData(newJobId);
   };
 
+  const openRefinementDiff = useCallback(
+    async (path: string) => {
+      if (!selectedJobId) return;
+      setDiffModal({
+        isOpen: true,
+        path,
+        original: '',
+        modified: '',
+        loading: true,
+        error: null,
+      });
+      try {
+        const res = await getRefinementCompare(selectedJobId, path);
+        if (res.error) {
+          setDiffModal({
+            isOpen: true,
+            path,
+            original: '',
+            modified: '',
+            loading: false,
+            error: res.error,
+          });
+          return;
+        }
+        setDiffModal({
+          isOpen: true,
+          path,
+          original: res.original,
+          modified: res.modified,
+          loading: false,
+          error: null,
+        });
+      } catch {
+        setDiffModal({
+          isOpen: true,
+          path,
+          original: '',
+          modified: '',
+          loading: false,
+          error: 'Failed to load diff from the server.',
+        });
+      }
+    },
+    [selectedJobId]
+  );
+
+  const closeDiffModal = () => {
+    setDiffModal({
+      isOpen: false,
+      path: '',
+      original: '',
+      modified: '',
+      loading: false,
+      error: null,
+    });
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
@@ -241,6 +343,17 @@ const Files: React.FC = () => {
           style={{ marginBottom: '1rem' }}
           actionClose={<Button variant="plain" onClick={() => setDownloadError(null)} aria-label="Close">×</Button>}
         />
+      )}
+      {selectedJobId && (jobs.find((j) => j.id === selectedJobId)?.vision?.startsWith('[Import]')) && (
+        <Alert
+          variant="success"
+          title="Import & Iterate project"
+          isInline
+          style={{ marginBottom: '1rem' }}
+        >
+          This job used first-class import analysis (tech stack + indexing). Use <strong>Refine</strong> for natural-language
+          edits — enhanced mode enables multi-file work, pytest, smoke tests, and git on the server.
+        </Alert>
       )}
       <Split hasGutter style={{ marginBottom: '1.5rem' }}>
         <SplitItem isFilled>
@@ -288,6 +401,199 @@ const Files: React.FC = () => {
           </Flex>
         </SplitItem>
       </Split>
+
+      {selectedJobId && (
+        <>
+          <style>{`@keyframes refineSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          <div
+            style={{
+              marginBottom: '1rem',
+              border: '1px solid #D2D2D2',
+              borderRadius: 6,
+              background: '#FAFAFA',
+            }}
+          >
+            <ExpandableSection
+              isExpanded={refChangesExpanded}
+              onToggle={() => setRefChangesExpanded(!refChangesExpanded)}
+              toggleContent={
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem' }}>
+                  <FolderOpenIcon style={{ color: '#0066CC', fontSize: '0.875rem' }} />
+                  <span style={{ fontWeight: 600 }}>Refinement change log</span>
+                  {refinementChanges && refinementChanges.total_files > 0 ? (
+                    <>
+                      <Label isCompact color="blue">{refinementChanges.total_files} files</Label>
+                      <span style={{ color: '#3E8635', fontWeight: 600, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                        +{refinementChanges.total_insertions}
+                      </span>
+                      <span style={{ color: '#C9190B', fontWeight: 600, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                        -{refinementChanges.total_deletions}
+                      </span>
+                    </>
+                  ) : (
+                    <Label isCompact color="grey">No refine diffs yet</Label>
+                  )}
+                  {isRefining && (
+                    <SyncAltIcon
+                      style={{
+                        color: '#0066CC',
+                        fontSize: '0.75rem',
+                        animation: 'refineSpin 2s linear infinite',
+                      }}
+                    />
+                  )}
+                </span>
+              }
+            >
+              <div style={{ borderTop: '1px solid #E8E8E8' }}>
+                {!refinementChanges || refinementChanges.total_files === 0 ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: '#6A6E73', fontSize: '0.8125rem' }}>
+                    {isRefining
+                      ? 'Waiting for refinement edits…'
+                      : 'After at least one successful Refine, git snapshots show cumulative changes vs the workspace before the first refinement (same idea as MTA File Change Log).'}
+                  </div>
+                ) : (
+                  <>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #E8E8E8', textAlign: 'left' }}>
+                          <th style={{ padding: '0.5rem 1rem', fontWeight: 600, color: '#6A6E73' }}>File</th>
+                          <th style={{ padding: '0.5rem 1rem', fontWeight: 600, color: '#6A6E73', width: 80, textAlign: 'center' }}>Change</th>
+                          <th style={{ padding: '0.5rem 1rem', fontWeight: 600, color: '#6A6E73', width: 80, textAlign: 'right' }}>Added</th>
+                          <th style={{ padding: '0.5rem 1rem', fontWeight: 600, color: '#6A6E73', width: 80, textAlign: 'right' }}>Removed</th>
+                          <th style={{ padding: '0.5rem 1rem', fontWeight: 600, color: '#6A6E73', width: 120 }}>View</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {refinementChanges.files.map((f) => {
+                          const total = f.insertions + f.deletions;
+                          const insPct = total > 0 ? (f.insertions / total) * 100 : 0;
+                          const changeLabel =
+                            f.change_type === 'A'
+                              ? 'Added'
+                              : f.change_type === 'D'
+                                ? 'Deleted'
+                                : f.change_type === 'R'
+                                  ? 'Renamed'
+                                  : 'Modified';
+                          const changeColor =
+                            f.change_type === 'A'
+                              ? '#3E8635'
+                              : f.change_type === 'D'
+                                ? '#C9190B'
+                                : '#0066CC';
+                          return (
+                            <tr key={f.path} style={{ borderBottom: '1px solid #F0F0F0' }}>
+                              <td
+                                style={{
+                                  padding: '0.4rem 1rem',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.75rem',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  maxWidth: 0,
+                                }}
+                              >
+                                <Link
+                                  to={`/files?job=${selectedJobId}&file=${encodeURIComponent(f.path)}`}
+                                  style={{ color: '#0066CC', textDecoration: 'none', fontFamily: 'monospace' }}
+                                >
+                                  {f.path}
+                                </Link>
+                              </td>
+                              <td style={{ padding: '0.4rem 1rem', textAlign: 'center' }}>
+                                <Label
+                                  isCompact
+                                  style={{
+                                    color: changeColor,
+                                    borderColor: changeColor,
+                                    background: 'transparent',
+                                    border: `1px solid ${changeColor}`,
+                                  }}
+                                >
+                                  {changeLabel}
+                                </Label>
+                              </td>
+                              <td
+                                style={{
+                                  padding: '0.4rem 1rem',
+                                  textAlign: 'right',
+                                  color: '#3E8635',
+                                  fontWeight: 500,
+                                  fontFamily: 'monospace',
+                                }}
+                              >
+                                {f.insertions > 0 ? `+${f.insertions}` : '—'}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '0.4rem 1rem',
+                                  textAlign: 'right',
+                                  color: '#C9190B',
+                                  fontWeight: 500,
+                                  fontFamily: 'monospace',
+                                }}
+                              >
+                                {f.deletions > 0 ? `-${f.deletions}` : '—'}
+                              </td>
+                              <td style={{ padding: '0.4rem 1rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  {total > 0 && (
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        height: '8px',
+                                        borderRadius: '4px',
+                                        overflow: 'hidden',
+                                        background: '#F0F0F0',
+                                        flex: 1,
+                                        minWidth: 48,
+                                      }}
+                                    >
+                                      <div style={{ width: `${insPct}%`, background: '#3E8635', transition: 'width 0.3s' }} />
+                                      <div style={{ width: `${100 - insPct}%`, background: '#C9190B', transition: 'width 0.3s' }} />
+                                    </div>
+                                  )}
+                                  <Button
+                                    variant="link"
+                                    isInline
+                                    style={{ padding: 0, fontSize: '0.75rem', flexShrink: 0 }}
+                                    onClick={() => void openRefinementDiff(f.path)}
+                                  >
+                                    Diff
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <div
+                      style={{
+                        padding: '0.375rem 1rem',
+                        borderTop: '1px solid #F0F0F0',
+                        fontSize: '0.75rem',
+                        color: '#6A6E73',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>
+                        {refinementChanges.baseline_commit} → {refinementChanges.head_commit}
+                      </span>
+                      <span>
+                        {refinementChanges.total_files} file{refinementChanges.total_files !== 1 ? 's' : ''} changed
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </ExpandableSection>
+          </div>
+        </>
+      )}
 
       <div style={{ display: 'flex', gap: '1.5rem', height: 'calc(100vh - 14rem)' }}>
         {/* File Tree Panel */}
@@ -382,11 +688,53 @@ const Files: React.FC = () => {
         </Card>
       </div>
 
+      <Modal
+        variant={ModalVariant.large}
+        title={`Refinement diff — ${diffModal.path || 'file'}`}
+        isOpen={diffModal.isOpen}
+        onClose={closeDiffModal}
+        actions={[
+          <Button key="close" variant="primary" onClick={closeDiffModal}>
+            Close
+          </Button>,
+        ]}
+      >
+        {diffModal.loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
+            <Spinner aria-label="Loading diff" />
+          </div>
+        )}
+        {!diffModal.loading && diffModal.error && (
+          <Alert variant="danger" title={diffModal.error} isInline />
+        )}
+        {!diffModal.loading && !diffModal.error && diffModal.path && (
+          <div style={{ border: `1px solid ${REDHAT.border}`, borderRadius: 4, overflow: 'hidden' }}>
+            <DiffEditor
+              height={560}
+              language={getLanguage(diffModal.path)}
+              original={diffModal.original}
+              modified={diffModal.modified}
+              theme="redhat-light"
+              beforeMount={defineRedHatTheme}
+              options={{
+                readOnly: true,
+                minimap: { enabled: false },
+                renderSideBySide: true,
+                fontSize: 13,
+                fontFamily: '"Red Hat Mono", "JetBrains Mono", "Menlo", monospace',
+              }}
+            />
+          </div>
+        )}
+      </Modal>
+
       {/* Floating refine button + slide-out chat panel */}
       <RefineChat
         selectedJobId={selectedJobId}
         selectedFile={selectedFile}
         jobVision={jobs.find((j) => j.id === selectedJobId)?.vision || null}
+        jiraIssueKey={jobs.find((j) => j.id === selectedJobId)?.metadata?.jira_issue_key ?? null}
+        welcomeImport={searchParams.get('welcomeImport') === '1'}
         onRefineComplete={handleRefineComplete}
       />
     </>

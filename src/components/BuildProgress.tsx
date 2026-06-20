@@ -16,6 +16,7 @@ import {
 import { getJob, getJobFiles, restartJob } from '../api/client';
 import type { Job, WorkspaceFile, ProgressMessage } from '../types';
 import { ValidationReportPanel } from './ValidationReportPanel';
+import PlanReviewPanel from './PlanReviewPanel';
 
 /* ── Phase metadata ───────────────────────────────────────────────────────── */
 const PHASE_META: Record<string, { label: string; icon: string; color: string }> = {
@@ -31,6 +32,10 @@ const PHASE_META: Record<string, { label: string; icon: string; color: string }>
   completed:        { label: 'Completed',           icon: '✅', color: '#3E8635' },
   devops:           { label: 'DevOps',               icon: '🐳', color: '#009596' },
   error:            { label: 'Error',               icon: '❌', color: '#C9190B' },
+  refining:         { label: 'Refining',             icon: '✏️', color: '#7B68EE' },
+  import_analyzing: { label: 'Import analysis',      icon: '🔍', color: '#3E8635' },
+  pending_review:   { label: 'Awaiting Review',       icon: '🔍', color: '#F0AB00' },
+  pending_approval: { label: 'Awaiting Approval',     icon: '✋', color: '#F0AB00' },
 };
 
 const PHASE_ORDER = [
@@ -62,7 +67,9 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
   const prevMsgCount = useRef(0);
 
   const isTerminal = job?.status === 'completed' || job?.status === 'failed' || job?.status === 'cancelled';
+  const isPendingReview = job?.status === 'pending_review' || job?.status === 'pending_approval';
   const isMta = job?.vision?.startsWith('[MTA') ?? false;
+  const isImport = job?.vision?.startsWith('[Import]') ?? false;
 
   /* ── Polling ───────────────────────────────────────────────────────────── */
   const poll = useCallback(async () => {
@@ -249,24 +256,43 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
         fontSize: '1.125rem', fontWeight: 700, color: '#151515',
         fontFamily: '"Red Hat Display", sans-serif', marginBottom: '0.5rem',
       }}>
-        Project Built Successfully
+        {isImport ? 'Import analysis complete' : 'Project Built Successfully'}
       </div>
       <p style={{ fontSize: '0.875rem', color: '#6A6E73', marginBottom: '1rem' }}>
-        {files.length} files generated. View details in the dashboard.
+        {isImport
+          ? 'tech_stack.md is ready. Open Files and use Refine to iterate with natural language (enhanced tools: tests, git).'
+          : `${files.length} files generated. View details in the dashboard.`}
       </p>
       <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-        <Button variant="primary" onClick={() => navigate('/dashboard')}
-          style={{ backgroundColor: '#3E8635', border: 'none' }}
-          icon={<CubesIcon />}>
-          Open Dashboard
-        </Button>
-        <Button variant="secondary" onClick={() => navigate('/files')}
-          icon={<CodeIcon />}>
-          View Files
-        </Button>
-        <Button variant="secondary" onClick={handleRestart}>
-          Run again
-        </Button>
+        {isImport ? (
+          <Button variant="primary" onClick={() => navigate(`/files?job=${jobId}&welcomeImport=1`)}
+            style={{ backgroundColor: '#3E8635', border: 'none' }}
+            icon={<CodeIcon />}>
+            Open Files & Refine
+          </Button>
+        ) : (
+          <Button variant="primary" onClick={() => navigate('/dashboard')}
+            style={{ backgroundColor: '#3E8635', border: 'none' }}
+            icon={<CubesIcon />}>
+            Open Dashboard
+          </Button>
+        )}
+        {!isImport && (
+          <>
+            <Button variant="secondary" onClick={() => navigate('/files')}
+              icon={<CodeIcon />}>
+              View Files
+            </Button>
+            <Button variant="secondary" onClick={handleRestart}>
+              Run again
+            </Button>
+          </>
+        )}
+        {isImport && (
+          <Button variant="secondary" onClick={() => navigate('/dashboard')}>
+            Dashboard
+          </Button>
+        )}
         {isMta && (
           <>
             <Button variant="link" onClick={handleRestart}
@@ -366,8 +392,12 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
           )}
           <span style={{ fontSize: '1rem', fontWeight: 700, color: '#151515' }}>
             {isTerminal
-              ? (job?.status === 'completed' ? 'Build Complete' : 'Build Stopped')
-              : 'Building...'}
+              ? (job?.status === 'completed'
+                ? (isImport ? 'Import Complete' : 'Build Complete')
+                : 'Build Stopped')
+              : isPendingReview
+                ? 'Plan ready — awaiting your review'
+                : (isImport ? 'Analyzing import...' : 'Building...')}
           </span>
         </div>
         <Button variant="link" size="sm"
@@ -408,14 +438,19 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
         </div>
       )}
 
-      {/* Phase timeline */}
-      {renderTimeline()}
+      {/* Phase timeline (hidden for import jobs — progress bar + log only) */}
+      {!isImport && renderTimeline()}
 
       {/* Activity log */}
       {renderLog()}
 
+      {/* Plan review gate */}
+      {isPendingReview && (
+        <PlanReviewPanel jobId={jobId} onApproved={() => poll()} />
+      )}
+
       {/* Files */}
-      {renderFiles()}
+      {!isPendingReview && renderFiles()}
 
       {/* Terminal states */}
       {job?.status === 'completed' && renderCompleted()}

@@ -25,12 +25,15 @@ import {
   GridItem,
   Flex,
   FlexItem,
+  Label,
 } from '@patternfly/react-core';
-import { CogIcon, UserIcon, KeyIcon, BellIcon } from '@patternfly/react-icons';
+import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon } from '@patternfly/react-icons';
+import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
 
 const Settings: React.FC = () => {
   const [activeTabKey, setActiveTabKey] = useState<string | number>(0);
   const [saved, setSaved] = useState(false);
+  const { prefs, setPrefs } = useWorkflowPrefs();
 
   // General Settings
   const [workspacePath, setWorkspacePath] = useState('./workspace');
@@ -294,8 +297,92 @@ const Settings: React.FC = () => {
               </div>
             </Tab>
 
+            {/* Workflow Automation Tab */}
+            <Tab eventKey={3} title={<TabTitleText><AutomationIcon /> Workflow</TabTitleText>}>
+              <div style={{ padding: '1.5rem 0' }}>
+                <Title headingLevel="h3" size="lg" style={{ marginBottom: '0.25rem' }}>
+                  Workflow Automation
+                </Title>
+                <p style={{ color: '#6A6E73', marginBottom: '1.5rem', fontSize: '0.875rem' }}>
+                  Control how much human oversight is applied during the AI planning process.
+                </p>
+
+                <Form>
+                  <FormGroup
+                    label={
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        Auto-approve plans
+                        {prefs.autoApprovePlan
+                          ? <Label isCompact color="green">Active</Label>
+                          : <Label isCompact color="grey">Off</Label>}
+                      </span>
+                    }
+                    fieldId="auto-approve-plan"
+                  >
+                    <Switch
+                      id="auto-approve-plan"
+                      label="Coding starts automatically after planning"
+                      labelOff="Pause for plan review before coding"
+                      isChecked={prefs.autoApprovePlan}
+                      onChange={(_e, checked) => setPrefs({ autoApprovePlan: checked })}
+                    />
+                    <div style={{
+                      marginTop: '0.75rem', fontSize: '0.875rem', color: '#6A6E73',
+                      background: prefs.autoApprovePlan ? '#F3FAF3' : '#F8F8F8',
+                      border: `1px solid ${prefs.autoApprovePlan ? '#C8E6C9' : '#E0E0E0'}`,
+                      borderRadius: '8px', padding: '0.75rem 1rem',
+                    }}>
+                      {prefs.autoApprovePlan ? (
+                        <>
+                          <strong style={{ color: '#3E8635' }}>Auto-approve is ON.</strong>
+                          {' '}Jobs go straight to coding once planning completes — no review
+                          pause. If a job enters review unexpectedly (e.g. from a JIRA trigger),
+                          a 5-second countdown will auto-approve it in the browser.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Manual review is ON.</strong>
+                          {' '}After planning phases complete, every job pauses so you can
+                          review the generated plan, provide feedback, and approve before
+                          coding begins. This requires <code>plan_review.enabled: true</code>
+                          {' '}in your server config, or the per-job "Review plan" checkbox
+                          at job creation time.
+                        </>
+                      )}
+                    </div>
+                  </FormGroup>
+
+                  <Divider style={{ margin: '1.5rem 0' }} />
+
+                  <Alert
+                    variant="info"
+                    title="How it works"
+                    isInline
+                  >
+                    <ul style={{ marginTop: '0.5rem', paddingLeft: '1.25rem', fontSize: '0.875rem' }}>
+                      <li>
+                        When <strong>Auto-approve is ON</strong>, new jobs are submitted with
+                        <code> auto_approve_plan: true</code>. The backend skips the review gate
+                        entirely — the job never enters <em>pending_review</em>.
+                      </li>
+                      <li style={{ marginTop: '0.35rem' }}>
+                        When <strong>Auto-approve is OFF</strong>, jobs pause for your review
+                        (requires the server-side <code>plan_review.enabled</code> flag). You can
+                        still override per job at creation time.
+                      </li>
+                      <li style={{ marginTop: '0.35rem' }}>
+                        For <strong>JIRA-triggered epics</strong>, use the
+                        <code> auto_approve_no_jira</code> server config for the equivalent
+                        server-side auto-approve behaviour.
+                      </li>
+                    </ul>
+                  </Alert>
+                </Form>
+              </div>
+            </Tab>
+
             {/* About Tab */}
-            <Tab eventKey={3} title={<TabTitleText><UserIcon /> About</TabTitleText>}>
+            <Tab eventKey={4} title={<TabTitleText><UserIcon /> About</TabTitleText>}>
               <div style={{ padding: '1.5rem 0' }}>
                 <Title headingLevel="h3" size="lg" style={{ marginBottom: '1rem' }}>
                   About AI Crew Studio

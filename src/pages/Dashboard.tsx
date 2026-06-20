@@ -47,10 +47,10 @@ import { useNavigate } from 'react-router-dom';
 import { usePolling } from '../hooks/usePolling';
 import { getStats, getJobs, getHealth, getJobProgress, restartJob, cancelJob } from '../api/client';
 import JobSearchSelect from '../components/JobSearchSelect';
+import PlanReviewPanel from '../components/PlanReviewPanel';
 import type { Stats, JobSummary, HealthCheck, ProgressMessage } from '../types';
-import { useAuth } from '../auth/OAuthProvider';
 
-const jobStatusColor = (status: string): 'green' | 'red' | 'blue' | 'orange' | 'grey' => {
+const jobStatusColor = (status: string): 'green' | 'red' | 'blue' | 'orange' | 'yellow' | 'grey' => {
   switch (status) {
     case 'running': return 'blue';
     case 'completed': return 'green';
@@ -59,6 +59,8 @@ const jobStatusColor = (status: string): 'green' | 'red' | 'blue' | 'orange' | '
     case 'quota_exhausted':
     case 'validation_failed': return 'red';
     case 'cancelled': return 'orange';
+    case 'pending_review':
+    case 'pending_approval': return 'yellow';
     default: return 'grey';
   }
 };
@@ -70,7 +72,8 @@ const PER_PAGE_OPTIONS = [
   { value: 50, title: '50' },
 ];
 
-const STATUS_OPTIONS = ['running', 'completed', 'partially_completed', 'failed', 'queued', 'cancelled', 'quota_exhausted'];
+const STATUS_OPTIONS = ['running', 'pending_review', 'pending_approval', 'completed', 'partially_completed', 'failed', 'queued', 'cancelled', 'quota_exhausted'];
+const REVIEW_STATUSES = new Set(['pending_review', 'pending_approval']);
 type SortCol = 'vision' | 'status' | 'current_phase' | 'progress' | 'created_at';
 
 const Dashboard: React.FC = () => {
@@ -90,10 +93,6 @@ const Dashboard: React.FC = () => {
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const { teams } = useAuth();
-  const [selectedTeam, setSelectedTeam] = useState<string>('');
-  const [teamFilterOpen, setTeamFilterOpen] = useState(false);
-
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [statusFilterOpen, setStatusFilterOpen] = useState(false);
@@ -104,7 +103,6 @@ const Dashboard: React.FC = () => {
   const loadData = useCallback(async (overrides?: {
     page?: number; perPage?: number; search?: string;
     status?: string; sort?: SortCol; order?: 'asc' | 'desc';
-    team?: string;
   }) => {
     const page = overrides?.page ?? jobsPage;
     const perPage = overrides?.perPage ?? jobsPerPage;
@@ -112,7 +110,6 @@ const Dashboard: React.FC = () => {
     const status = overrides?.status ?? statusFilter;
     const sort = overrides?.sort ?? sortBy;
     const order = overrides?.order ?? sortOrder;
-    const team = overrides?.team ?? selectedTeam;
     try {
       const [s, jobsResp, h] = await Promise.all([
         getStats(),
@@ -120,7 +117,6 @@ const Dashboard: React.FC = () => {
           status: status || undefined,
           sortBy: sort,
           sortOrder: order,
-          teamId: team || undefined,
         }),
         getHealth(),
       ]);
@@ -147,7 +143,7 @@ const Dashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedJobId, jobsPage, jobsPerPage, searchText, statusFilter, sortBy, sortOrder, selectedTeam]);
+  }, [selectedJobId, jobsPage, jobsPerPage, searchText, statusFilter, sortBy, sortOrder]);
 
   usePolling(loadData, 2000);
 
@@ -173,13 +169,6 @@ const Dashboard: React.FC = () => {
     setStatusFilterOpen(false);
     setJobsPage(1);
     loadData({ page: 1, status: value });
-  };
-
-  const handleTeamFilter = (value: string) => {
-    setSelectedTeam(value);
-    setTeamFilterOpen(false);
-    setJobsPage(1);
-    loadData({ page: 1, team: value });
   };
 
   if (loading) {
@@ -230,7 +219,7 @@ const Dashboard: React.FC = () => {
       </Split>
 
       {/* Stats Grid */}
-      <Grid hasGutter lg={2} md={4} sm={6}>
+      <Grid hasGutter lg={3} md={6} sm={12}>
         <GridItem>
           <Card isFullHeight>
             <CardHeader>
@@ -297,23 +286,6 @@ const Dashboard: React.FC = () => {
             </CardBody>
           </Card>
         </GridItem>
-        <GridItem>
-          <Card isFullHeight>
-            <CardHeader>
-              <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsCenter' }}>
-                <FlexItem><CardTitle>Total Cost</CardTitle></FlexItem>
-              </Flex>
-            </CardHeader>
-            <CardBody>
-              <Title headingLevel="h2" size="2xl">
-                ${(stats?.total_cost ?? 0).toFixed(2)}
-              </Title>
-              <p style={{ fontSize: '0.75rem', color: '#6A6E73' }}>
-                {(stats?.total_tokens ?? 0).toLocaleString()} tokens
-              </p>
-            </CardBody>
-          </Card>
-        </GridItem>
       </Grid>
 
       <Grid hasGutter style={{ marginTop: '1.5rem' }}>
@@ -366,8 +338,16 @@ const Dashboard: React.FC = () => {
 
         {/* Sidebar Info */}
         <GridItem lg={4} md={12}>
+          {/* Plan review gate — shown when selected job is pending review/approval */}
+          {selectedJobId && REVIEW_STATUSES.has(jobs.find((j) => j.id === selectedJobId)?.status ?? '') && (
+            <PlanReviewPanel
+              jobId={selectedJobId}
+              onApproved={() => loadData()}
+            />
+          )}
+
           {/* Current Phase */}
-          <Card style={{ marginBottom: '1.5rem' }}>
+          <Card style={{ marginBottom: '1.5rem', marginTop: selectedJobId && REVIEW_STATUSES.has(jobs.find((j) => j.id === selectedJobId)?.status ?? '') ? '1rem' : 0 }}>
             <CardHeader>
               <CardTitle>Current Phase</CardTitle>
             </CardHeader>
@@ -501,53 +481,24 @@ const Dashboard: React.FC = () => {
                     </SelectList>
                   </Select>
                 </ToolbarItem>
-                <ToolbarItem>
-                  <Select
-                    isOpen={teamFilterOpen}
-                    selected={selectedTeam || undefined}
-                    onSelect={(_e, value) => handleTeamFilter(value as string)}
-                    onOpenChange={setTeamFilterOpen}
-                    toggle={(ref) => (
-                      <MenuToggle
-                        ref={ref}
-                        onClick={() => setTeamFilterOpen(!teamFilterOpen)}
-                        isExpanded={teamFilterOpen}
-                        style={{ minWidth: 140 }}
-                      >
-                        {selectedTeam === 'personal' ? 'Personal' : (selectedTeam || 'All teams')}
-                      </MenuToggle>
-                    )}
-                  >
-                    <SelectList>
-                      <SelectOption value="">All teams</SelectOption>
-                      <SelectOption value="personal">Personal</SelectOption>
-                      {teams.map((t) => (
-                        <SelectOption key={t} value={t}>
-                          {t}
-                        </SelectOption>
-                      ))}
-                    </SelectList>
-                  </Select>
-                </ToolbarItem>
               </ToolbarContent>
             </Toolbar>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', tableLayout: 'fixed' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #E8E8E8', textAlign: 'left' }}>
                   {([
-                    ['Vision', 'vision', '25%'],
+                    ['Vision', 'vision', '28%'],
                     ['Status', 'status', '9%'],
                     ['Phase', 'current_phase', '11%'],
-                    ['Progress', 'progress', '12%'],
-                    ['Cost', 'cost', '7%'],
+                    ['Progress', 'progress', '14%'],
                     ['Created', 'created_at', '14%'],
-                  ] as [string, SortCol | 'cost', string][]).map(([label, col, width]) => (
+                  ] as [string, SortCol, string][]).map(([label, col, width]) => (
                     <th
                       key={col}
-                      onClick={() => col !== 'cost' && handleSort(col as SortCol)}
+                      onClick={() => handleSort(col)}
                       style={{
                         padding: '0.75rem 1rem', fontWeight: 600, color: '#6A6E73',
-                        width, cursor: col === 'cost' ? 'default' : 'pointer', userSelect: 'none',
+                        width, cursor: 'pointer', userSelect: 'none',
                       }}
                     >
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -624,9 +575,6 @@ const Dashboard: React.FC = () => {
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '0.625rem 1rem', color: '#6A6E73', fontSize: '0.8rem' }}>
-                      ${(job.cost ?? 0).toFixed(2)}
-                    </td>
                     <td onClick={() => setSelectedJobId(job.id)} style={{ padding: '0.625rem 1rem', color: '#6A6E73', fontSize: '0.8rem', cursor: 'pointer' }}>
                       {new Date(job.created_at).toLocaleString()}
                     </td>
@@ -676,6 +624,14 @@ const Dashboard: React.FC = () => {
                               job.vision.startsWith('[Refactor') ? 'View refactor' :
                                 'View files'}
                           </DropdownItem>
+                          {REVIEW_STATUSES.has(job.status) && (
+                            <DropdownItem
+                              key="review-plan"
+                              onClick={() => setSelectedJobId(job.id)}
+                            >
+                              Review &amp; Approve Plan
+                            </DropdownItem>
+                          )}
                           {['running', 'queued'].includes(job.status) && (
                             <DropdownItem
                               key="cancel"

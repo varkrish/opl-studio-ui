@@ -8,7 +8,45 @@ export type JobStatus =
   | 'cancelled'
   | 'quota_exhausted'
   | 'refinement_failed'
-  | 'validation_failed';
+  | 'validation_failed'
+  /** Job paused for human review/approval before coding begins */
+  | 'pending_review'
+  /** Epic job paused for story approval after AI decomposition */
+  | 'pending_approval';
+
+/** A single JIRA-style story surfaced in the plan review panel */
+export interface JiraStory {
+  key?: string;
+  summary: string;
+  description?: string;
+  issue_type?: string;
+  /** Whether the story was AI-generated (not pre-existing in JIRA) */
+  ai_generated?: boolean;
+}
+
+/** Planning artifacts returned by GET /api/jobs/{id}/plan */
+export interface PlanArtifacts {
+  'user_stories.md'?: string;
+  'design_spec.md'?: string;
+  'tech_stack.md'?: string;
+  'requirements.md'?: string;
+}
+
+/** A single round of feedback submitted during plan review */
+export interface FeedbackRound {
+  feedback: string;
+  at: string;
+}
+
+/** Full plan review data from GET /api/jobs/{id}/plan */
+export interface PlanReviewData {
+  artifacts: PlanArtifacts;
+  jira_stories: JiraStory[];
+  epic_judge_reasoning?: string;
+  plan_feedback_history: FeedbackRound[];
+}
+
+export type RefineScope = 'impact' | 'file' | 'project';
 
 /** Refinement record from GET /api/jobs/<id>/refinements */
 export interface Refinement {
@@ -32,8 +70,17 @@ export interface ProgressMessage {
 /** External metadata attached to a job (e.g. Jira origin) */
 export interface JobMetadata {
   jira_issue_key?: string;
+  jira_issue_type?: string;
   jira_base_url?: string;
   jira_issue_url?: string;
+  work_intent?: 'fix' | 'deliver_epic' | 'deliver_build' | 'transform' | 'change' | 'replan';
+  refinement_kind?: 'fix' | 'feature' | 'edit';
+  auto_fix_after_analyze?: boolean;
+  /** Populated for epic jobs during/after AI judge decomposition */
+  jira_stories?: JiraStory[];
+  epic_judge_reasoning?: string;
+  plan_feedback_history?: FeedbackRound[];
+  pending_review_approved?: boolean;
   [key: string]: unknown;
 }
 
@@ -52,8 +99,6 @@ export interface Job {
   error: string | null;
   last_message: ProgressMessage[];
   metadata?: JobMetadata;
-  cost?: number;
-  tokens?: number;
 }
 
 /** Summary job record from GET /api/jobs list */
@@ -66,8 +111,6 @@ export interface JobSummary {
   created_at: string;
   completed_at: string | null;
   metadata?: JobMetadata;
-  cost?: number;
-  tokens?: number;
 }
 
 /** Paginated jobs list response from GET /api/jobs?page=&page_size= */
@@ -100,8 +143,6 @@ export interface Stats {
   failed: number;
   quota_exhausted: number;
   queued: number;
-  total_cost?: number;
-  total_tokens?: number;
 }
 
 /** Workspace file entry */
