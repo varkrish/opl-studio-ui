@@ -14,10 +14,18 @@ import type {
   SkillInfo,
   SkillSearchResult,
 } from '../types';
+import { activeToken } from '../auth/OAuthProvider';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
   headers: { 'Content-Type': 'application/json' },
+});
+
+api.interceptors.request.use((config) => {
+  if (activeToken) {
+    config.headers.Authorization = `Bearer ${activeToken}`;
+  }
+  return config;
 });
 
 // ── Stats ───────────────────────────────────────────────────────────────────
@@ -37,13 +45,14 @@ export async function getJobs(
   page = 1,
   pageSize = 10,
   visionContains?: string,
-  opts?: { status?: string; sortBy?: string; sortOrder?: 'asc' | 'desc' },
+  opts?: { status?: string; sortBy?: string; sortOrder?: 'asc' | 'desc'; teamId?: string },
 ): Promise<JobsPageResponse> {
   const params: Record<string, string | number> = { page, page_size: pageSize };
   if (visionContains) params.vision_contains = visionContains;
   if (opts?.status) params.status = opts.status;
   if (opts?.sortBy) params.sort_by = opts.sortBy;
   if (opts?.sortOrder) params.sort_order = opts.sortOrder;
+  if (opts?.teamId) params.team_id = opts.teamId;
   const { data } = await api.get<JobsPageResponse>('/api/jobs', { params });
   return data;
 }
@@ -57,7 +66,8 @@ export async function createJob(
   vision: string,
   documents?: File[],
   githubUrls?: string[],
-  backend?: string
+  backend?: string,
+  teamId?: string
 ): Promise<{ job_id: string; status: string; documents: number; github_repos: number }> {
   const hasFiles = documents && documents.length > 0;
   const hasGithub = githubUrls && githubUrls.length > 0;
@@ -66,6 +76,7 @@ export async function createJob(
     const formData = new FormData();
     formData.append('vision', vision);
     if (backend) formData.append('backend', backend);
+    if (teamId) formData.append('team_id', teamId);
     if (hasFiles) {
       documents!.forEach((file) => formData.append('documents', file));
     }
@@ -85,7 +96,7 @@ export async function createJob(
     job_id: string; status: string; documents: number; github_repos: number;
   }>(
     '/api/jobs',
-    { vision, backend }
+    { vision, backend, team_id: teamId }
   );
   return data;
 }
@@ -103,11 +114,13 @@ export async function createMigrationJob(
   reportFiles: File[],
   githubUrls?: string[],
   backend?: string,
+  teamId?: string,
 ): Promise<{ job_id: string; status: string; documents: number; source_files: number; github_repos: number }> {
   const formData = new FormData();
   formData.append('vision', vision);
   formData.append('mode', 'migration');
   if (backend) formData.append('backend', backend);
+  if (teamId) formData.append('team_id', teamId);
   if (sourceArchive) {
     formData.append('source_archive', sourceArchive);
   }
@@ -133,11 +146,13 @@ export async function createRefactorJob(
   sourceArchive: File | null,
   githubUrls?: string[],
   backend?: string,
+  teamId?: string,
 ): Promise<{ job_id: string; status: string; documents: number; source_files: number; github_repos: number }> {
   const formData = new FormData();
   formData.append('vision', vision);
   formData.append('mode', 'refactor');
   if (backend) formData.append('backend', backend);
+  if (teamId) formData.append('team_id', teamId);
   if (sourceArchive) {
     formData.append('source_archive', sourceArchive);
   }

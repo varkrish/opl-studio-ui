@@ -10,26 +10,29 @@ import Settings from './pages/Settings';
 import Migration from './pages/Migration';
 import Refactor from './pages/Refactor';
 import Skills from './pages/Skills';
+import { OAuthProvider } from './auth/OAuthProvider';
 
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route element={<AppLayout />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/agents" element={<Agents />} />
-          <Route path="/tasks" element={<Tasks />} />
-          <Route path="/files" element={<Files />} />
-          <Route path="/skills" element={<Skills />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/migration" element={<Migration />} />
-          <Route path="/migration/:jobId" element={<Migration />} />
-          <Route path="/refactor" element={<Refactor />} />
-          <Route path="/refactor/:jobId" element={<Refactor />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <OAuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route element={<AppLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/agents" element={<Agents />} />
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/files" element={<Files />} />
+            <Route path="/skills" element={<Skills />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/migration" element={<Migration />} />
+            <Route path="/migration/:jobId" element={<Migration />} />
+            <Route path="/refactor" element={<Refactor />} />
+            <Route path="/refactor/:jobId" element={<Refactor />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </OAuthProvider>
   );
 };
 

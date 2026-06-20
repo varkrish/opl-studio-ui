@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { useAuth } from '../auth/OAuthProvider';
 import {
   Brand,
   Masthead,
@@ -35,6 +36,13 @@ const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { user, logout, isAdmin } = useAuth();
+
+  const initials = user?.name
+    ? user.name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase()
+    : 'U';
+  
+  const avatarSvg = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Ccircle cx='24' cy='24' r='24' fill='%23EE0000'/%3E%3Ctext x='24' y='25' dy='.35em' text-anchor='middle' fill='white' font-family='Red Hat Display,sans-serif' font-size='16' font-weight='700'%3E${initials}%3C/text%3E%3C/svg%3E`;
 
   const onNavSelect = (
     _event: React.FormEvent<HTMLInputElement>,
@@ -142,18 +150,46 @@ const AppLayout: React.FC = () => {
         >
           <FlexItem>
             <Avatar
-              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Ccircle cx='24' cy='24' r='24' fill='%23EE0000'/%3E%3Ctext x='24' y='24' dy='.35em' text-anchor='middle' fill='white' font-family='Red Hat Display,sans-serif' font-size='18' font-weight='700'%3EA%3C/text%3E%3C/svg%3E"
-              alt="Admin User"
+              src={avatarSvg}
+              alt={user?.name || "User"}
               size="md"
             />
           </FlexItem>
-          <FlexItem>
+          <FlexItem style={{ flex: 1 }}>
             <div style={{ lineHeight: 1.3 }}>
-              <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                Admin User
+              <div style={{ fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                {user?.name || "Loading..."}
+                {isAdmin && (
+                  <span style={{
+                    fontSize: '0.625rem',
+                    background: '#EE0000',
+                    color: 'white',
+                    padding: '0.05rem 0.25rem',
+                    borderRadius: '3px',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase'
+                  }}>Admin</span>
+                )}
               </div>
-              <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>
-                admin@redhat.com
+              <div style={{ fontSize: '0.75rem', opacity: 0.6, wordBreak: 'break-all' }}>
+                {user?.email || ""}
+              </div>
+              <div style={{ marginTop: '0.25rem' }}>
+                <button
+                  onClick={logout}
+                  style={{
+                    border: 'none',
+                    background: 'none',
+                    padding: 0,
+                    color: '#EE0000',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    fontWeight: 600
+                  }}
+                >
+                  Logout
+                </button>
               </div>
             </div>
           </FlexItem>

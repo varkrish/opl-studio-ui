@@ -29,6 +29,7 @@ import {
 import { createJob, createMigrationJob, createRefactorJob, getBackends, startMigration, startRefactor, getMigrationStatus } from '../api/client';
 import type { BackendOption } from '../types';
 import BuildProgress from '../components/BuildProgress';
+import { useAuth } from '../auth/OAuthProvider';
 
 type ProjectMode = 'build' | 'migration' | 'refactor';
 
@@ -63,6 +64,13 @@ function formatSize(bytes: number): string {
 /* ── Component ────────────────────────────────────────────────────────────── */
 const Landing: React.FC = () => {
   const navigate = useNavigate();
+  const { teams } = useAuth();
+
+  // Team selection
+  const [selectedTeam, setSelectedTeam] = useState<string | undefined>(() => {
+    return teams.length === 1 ? teams[0] : undefined;
+  });
+  const [teamSelectOpen, setTeamSelectOpen] = useState(false);
 
   // Project mode
   const [projectMode, setProjectMode] = useState<ProjectMode>('build');
@@ -238,6 +246,7 @@ const Landing: React.FC = () => {
         files.length > 0 ? files : undefined,
         githubUrls.length > 0 ? githubUrls : undefined,
         selectedBackend,
+        selectedTeam,
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -299,6 +308,7 @@ const Landing: React.FC = () => {
         mtaReportFiles,
         githubUrls.length > 0 ? githubUrls : undefined,
         selectedBackend,
+        selectedTeam,
       );
 
       console.log('[Migration] Job created:', result);
@@ -362,7 +372,8 @@ const Landing: React.FC = () => {
         jobLabel,
         sourceArchive,
         githubUrls.length > 0 ? githubUrls : undefined,
-        selectedBackend
+        selectedBackend,
+        selectedTeam,
       );
 
       console.log('[Refactor] Job created:', result);
@@ -773,30 +784,60 @@ const Landing: React.FC = () => {
                   marginTop: '0.75rem', paddingTop: '0.75rem',
                   borderTop: '1px solid #F0F0F0',
                 }}>
-                  <Select
-                    toggle={(toggleRef) => (
-                      <MenuToggle ref={toggleRef}
-                        onClick={() => setBackendSelectOpen(!backendSelectOpen)}
-                        isExpanded={backendSelectOpen}
-                        style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '150px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {/* Team Selector */}
+                    {teams.length > 0 && (
+                      <Select
+                        toggle={(toggleRef) => (
+                          <MenuToggle ref={toggleRef}
+                            onClick={() => setTeamSelectOpen(!teamSelectOpen)}
+                            isExpanded={teamSelectOpen}
+                            style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                          >
+                            {selectedTeam || 'Personal (No team)'}
+                          </MenuToggle>
+                        )}
+                        onSelect={(_e, s) => { setSelectedTeam(s as string || undefined); setTeamSelectOpen(false); }}
+                        selected={selectedTeam || ''}
+                        isOpen={teamSelectOpen}
+                        onOpenChange={setTeamSelectOpen}
+                        aria-label="Select team"
                       >
-                        {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
-                      </MenuToggle>
+                        <SelectList>
+                          <SelectOption value="">Personal (No team)</SelectOption>
+                          {teams.map((t) => (
+                            <SelectOption key={t} value={t}>{t}</SelectOption>
+                          ))}
+                        </SelectList>
+                      </Select>
                     )}
-                    onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
-                    selected={selectedBackend}
-                    isOpen={backendSelectOpen}
-                    onOpenChange={setBackendSelectOpen}
-                    aria-label="Select agentic system"
-                  >
-                    <SelectList>
-                      {backends.map((b) => (
-                        <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
-                          {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
-                        </SelectOption>
-                      ))}
-                    </SelectList>
-                  </Select>
+
+                    {/* Backend Selector */}
+                    <Select
+                      toggle={(toggleRef) => (
+                        <MenuToggle ref={toggleRef}
+                          onClick={() => setBackendSelectOpen(!backendSelectOpen)}
+                          isExpanded={backendSelectOpen}
+                          style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                        >
+                          {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
+                        </MenuToggle>
+                      )}
+                      onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
+                      selected={selectedBackend}
+                      isOpen={backendSelectOpen}
+                      onOpenChange={setBackendSelectOpen}
+                      aria-label="Select agentic system"
+                    >
+                      <SelectList>
+                        {backends.map((b) => (
+                          <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
+                            {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
+                          </SelectOption>
+                        ))}
+                      </SelectList>
+                    </Select>
+                  </div>
                   <Button variant="primary" onClick={handleCreateProject}
                     isLoading={creating} isDisabled={!vision.trim() || creating}
                     style={{
@@ -1093,30 +1134,60 @@ const Landing: React.FC = () => {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Select
-                      toggle={(toggleRef) => (
-                        <MenuToggle ref={toggleRef}
-                          onClick={() => setBackendSelectOpen(!backendSelectOpen)}
-                          isExpanded={backendSelectOpen}
-                          style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '150px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {/* Team Selector */}
+                      {teams.length > 0 && (
+                        <Select
+                          toggle={(toggleRef) => (
+                            <MenuToggle ref={toggleRef}
+                              onClick={() => setTeamSelectOpen(!teamSelectOpen)}
+                              isExpanded={teamSelectOpen}
+                              style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                            >
+                              {selectedTeam || 'Personal (No team)'}
+                            </MenuToggle>
+                          )}
+                          onSelect={(_e, s) => { setSelectedTeam(s as string || undefined); setTeamSelectOpen(false); }}
+                          selected={selectedTeam || ''}
+                          isOpen={teamSelectOpen}
+                          onOpenChange={setTeamSelectOpen}
+                          aria-label="Select team"
                         >
-                          {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
-                        </MenuToggle>
+                          <SelectList>
+                            <SelectOption value="">Personal (No team)</SelectOption>
+                            {teams.map((t) => (
+                              <SelectOption key={t} value={t}>{t}</SelectOption>
+                            ))}
+                          </SelectList>
+                        </Select>
                       )}
-                      onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
-                      selected={selectedBackend}
-                      isOpen={backendSelectOpen}
-                      onOpenChange={setBackendSelectOpen}
-                      aria-label="Select agentic system"
-                    >
-                      <SelectList>
-                        {backends.map((b) => (
-                          <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
-                            {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
-                          </SelectOption>
-                        ))}
-                      </SelectList>
-                    </Select>
+
+                      {/* Backend Selector */}
+                      <Select
+                        toggle={(toggleRef) => (
+                          <MenuToggle ref={toggleRef}
+                            onClick={() => setBackendSelectOpen(!backendSelectOpen)}
+                            isExpanded={backendSelectOpen}
+                            style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                          >
+                            {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
+                          </MenuToggle>
+                        )}
+                        onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
+                        selected={selectedBackend}
+                        isOpen={backendSelectOpen}
+                        onOpenChange={setBackendSelectOpen}
+                        aria-label="Select agentic system"
+                      >
+                        <SelectList>
+                          {backends.map((b) => (
+                            <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
+                              {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
+                            </SelectOption>
+                          ))}
+                        </SelectList>
+                      </Select>
+                    </div>
                     <Button variant="primary" onClick={handleCreateMigrationProject}
                       isLoading={creating}
                       isDisabled={!canSubmitMigration}
@@ -1274,7 +1345,35 @@ const Landing: React.FC = () => {
                 )}
               </div>
 
-              <div style={{ paddingTop: '0.75rem', borderTop: '1px solid #F0F0F0', display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ paddingTop: '0.75rem', borderTop: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  {/* Team Selector */}
+                  {teams.length > 0 && (
+                    <Select
+                      toggle={(toggleRef) => (
+                        <MenuToggle ref={toggleRef}
+                          onClick={() => setTeamSelectOpen(!teamSelectOpen)}
+                          isExpanded={teamSelectOpen}
+                          style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '140px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                        >
+                          {selectedTeam || 'Personal (No team)'}
+                        </MenuToggle>
+                      )}
+                      onSelect={(_e, s) => { setSelectedTeam(s as string || undefined); setTeamSelectOpen(false); }}
+                      selected={selectedTeam || ''}
+                      isOpen={teamSelectOpen}
+                      onOpenChange={setTeamSelectOpen}
+                      aria-label="Select team"
+                    >
+                      <SelectList>
+                        <SelectOption value="">Personal (No team)</SelectOption>
+                        {teams.map((t) => (
+                          <SelectOption key={t} value={t}>{t}</SelectOption>
+                        ))}
+                      </SelectList>
+                    </Select>
+                  )}
+                </div>
                 <Button variant="primary" onClick={handleCreateRefactorProject}
                   isLoading={creating}
                   isDisabled={!targetStack.trim() || (!sourceArchive && githubUrls.length === 0)}

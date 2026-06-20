@@ -52,6 +52,8 @@ export interface Job {
   error: string | null;
   last_message: ProgressMessage[];
   metadata?: JobMetadata;
+  cost?: number;
+  tokens?: number;
 }
 
 /** Summary job record from GET /api/jobs list */
@@ -64,6 +66,8 @@ export interface JobSummary {
   created_at: string;
   completed_at: string | null;
   metadata?: JobMetadata;
+  cost?: number;
+  tokens?: number;
 }
 
 /** Paginated jobs list response from GET /api/jobs?page=&page_size= */
@@ -96,6 +100,8 @@ export interface Stats {
   failed: number;
   quota_exhausted: number;
   queued: number;
+  total_cost?: number;
+  total_tokens?: number;
 }
 
 /** Workspace file entry */
