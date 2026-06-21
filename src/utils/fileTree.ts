@@ -10,6 +10,9 @@ const INTERNAL_FILE_PATTERNS = [
   /^crew_errors\.log$/,       // Error logs
   /^agent_prompts\.json$/,    // Internal prompt data
   /^repomix-.*\.xml$/,        // Repomix packed repo outputs
+  /^index_.*$/,               // Internal RAG index directories
+  /^rag_index_manifest\.json$/, // RAG manifest
+  /^.*_triage\.json$/,        // Triage routing outputs (e.g., delivery_mode_triage.json)
   /^\..*$/,                   // Hidden files (dotfiles)
   /^__pycache__$/,            // Python cache
   /^\.pytest_cache$/,         // Pytest cache
