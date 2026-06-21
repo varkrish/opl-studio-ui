@@ -37,6 +37,7 @@ import {
   startImportAnalysis,
   getMigrationStatus,
   searchJiraIssues,
+  getJiraConfig,
 } from '../api/client';
 import type { BackendOption } from '../types';
 import type { JiraIssue } from '../api/client';
@@ -126,6 +127,8 @@ const Landing: React.FC = () => {
     : prefs.autoApprovePlan;
 
   // Jira issue linking
+  const [jiraConnected, setJiraConnected] = useState(false);
+  const [inputMode, setInputMode] = useState<'vision' | 'jira'>('vision');
   const [jiraQuery, setJiraQuery] = useState('');
   const [jiraResults, setJiraResults] = useState<JiraIssue[]>([]);
   const [jiraSearching, setJiraSearching] = useState(false);
@@ -133,6 +136,7 @@ const Landing: React.FC = () => {
   const [selectedJiraIssue, setSelectedJiraIssue] = useState<JiraIssue | null>(null);
   const [jiraPickerOpen, setJiraPickerOpen] = useState(false);
   const jiraSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jiraInputRef = useRef<HTMLInputElement>(null);
 
   // Build state — when set, we switch to split view
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -144,14 +148,21 @@ const Landing: React.FC = () => {
       .then(setBackends)
       .catch((err) => {
         console.error('Failed to load backends:', err);
-        // Fallback to OPL only
         setBackends([{ name: 'opl-ai-team', display_name: 'OPL AI Team', available: true }]);
       });
+  }, []);
+
+  // Check whether the user has Jira configured
+  useEffect(() => {
+    getJiraConfig()
+      .then((cfg) => setJiraConnected(cfg.configured))
+      .catch(() => setJiraConnected(false));
   }, []);
 
   /* ── Jira issue search ───────────────────────────────────────────────────── */
   const handleJiraQueryChange = (q: string) => {
     setJiraQuery(q);
+    setJiraPickerOpen(true);
     if (jiraSearchTimer.current) clearTimeout(jiraSearchTimer.current);
     if (!q.trim()) { setJiraResults([]); return; }
     jiraSearchTimer.current = setTimeout(async () => {
@@ -168,7 +179,35 @@ const Landing: React.FC = () => {
       } finally {
         setJiraSearching(false);
       }
-    }, 400);
+    }, 350);
+  };
+
+  const handleSelectJiraIssue = (issue: JiraIssue) => {
+    setSelectedJiraIssue(issue);
+    setVision(`${issue.key}: ${issue.summary}`);
+    setJiraPickerOpen(false);
+    setJiraQuery('');
+    setJiraResults([]);
+  };
+
+  const handleClearJiraIssue = () => {
+    setSelectedJiraIssue(null);
+    setVision('');
+    setJiraQuery('');
+    setJiraResults([]);
+    setJiraPickerOpen(false);
+    setTimeout(() => jiraInputRef.current?.focus(), 50);
+  };
+
+  const switchInputMode = (mode: 'vision' | 'jira') => {
+    setInputMode(mode);
+    if (mode === 'vision') {
+      // If vision was auto-filled from Jira, clear it so user gets a blank slate
+      if (selectedJiraIssue) {
+        setVision('');
+        setSelectedJiraIssue(null);
+      }
+    }
   };
 
   /* ── File handling ──────────────────────────────────────────────────────── */
@@ -893,190 +932,276 @@ const Landing: React.FC = () => {
             <>
               {/* Input card */}
               <div style={{
-                background: 'white', borderRadius: '16px', padding: '1.25rem',
-                boxShadow: '0 2px 16px rgba(0,0,0,0.06)', border: '1px solid #E7E7E7',
+                background: 'white', borderRadius: '16px',
+                boxShadow: '0 2px 16px rgba(0,0,0,0.06)',
+                border: inputMode === 'jira' ? '1px solid rgba(0,102,204,0.3)' : '1px solid #E7E7E7',
+                overflow: 'visible',
               }}>
-                <TextArea
-                  value={vision}
-                  onChange={(_e, v) => setVision(v)}
-                  placeholder="Describe your project vision..."
-                  style={{
-                    minHeight: '120px', fontSize: '0.9375rem',
-                    fontFamily: '"Red Hat Text", sans-serif',
-                    border: 'none', padding: '0', resize: 'none',
-                    lineHeight: 1.6, color: '#151515',
-                  }}
-                  aria-label="Project description"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreateProject();
-                  }}
-                />
-
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  marginTop: '0.75rem', paddingTop: '0.75rem',
-                  borderTop: '1px solid #F0F0F0',
-                }}>
-                  <Select
-                    toggle={(toggleRef) => (
-                      <MenuToggle ref={toggleRef}
-                        onClick={() => setBackendSelectOpen(!backendSelectOpen)}
-                        isExpanded={backendSelectOpen}
-                        style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '150px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
-                      >
-                        {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
-                      </MenuToggle>
-                    )}
-                    onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
-                    selected={selectedBackend}
-                    isOpen={backendSelectOpen}
-                    onOpenChange={setBackendSelectOpen}
-                    aria-label="Select agentic system"
-                  >
-                    <SelectList>
-                      {backends.map((b) => (
-                        <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
-                          {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
-                        </SelectOption>
-                      ))}
-                    </SelectList>
-                  </Select>
-                  <Button variant="primary" onClick={handleCreateProject}
-                    isLoading={creating} isDisabled={!vision.trim() || creating}
-                    style={{
-                      backgroundColor: '#EE0000', border: 'none', fontWeight: 600,
-                      padding: '0.5rem 1.75rem', fontSize: '0.875rem', borderRadius: '10px', color: 'white',
-                    }}
-                    icon={creating ? <Spinner size="sm" /> : <RocketIcon />} iconPosition="end">
-                    {creating ? 'Creating...' : 'Start Building'}
-                  </Button>
-                </div>
-
-                {/* Per-job plan review toggle */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  marginTop: '1rem', flexWrap: 'wrap',
-                }}>
-                  <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Plan Approval:</Label>
-                  <Select
-                    id="plan-review-select"
-                    isOpen={reviewPlanSelectOpen}
-                    selected={effectiveAutoApprove ? 'auto' : 'review'}
-                    onSelect={(e, val) => {
-                      setReviewPlanOverride(val === 'auto');
-                      setReviewPlanSelectOpen(false);
-                    }}
-                    onOpenChange={(isOpen) => setReviewPlanSelectOpen(isOpen)}
-                    toggle={(toggleRef) => (
-                      <MenuToggle
-                        ref={toggleRef}
-                        onClick={() => setReviewPlanSelectOpen(!reviewPlanSelectOpen)}
-                        isExpanded={reviewPlanSelectOpen}
+                {/* Mode toggle tabs — only visible when Jira is connected */}
+                {jiraConnected && (
+                  <div style={{
+                    display: 'flex', borderBottom: '1px solid #E7E7E7',
+                    background: '#FAFAFA', borderRadius: '16px 16px 0 0',
+                  }}>
+                    {[
+                      { id: 'vision' as const, label: '✍️ Describe Vision' },
+                      { id: 'jira' as const, label: '🔵 Pick from Jira' },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => switchInputMode(tab.id)}
                         style={{
-                          backgroundColor: 'white', border: '1px solid #D2D2D2',
-                          borderRadius: '8px', fontSize: '0.875rem',
-                          minWidth: '240px', color: '#151515',
+                          flex: 1, padding: '0.65rem 1rem', border: 'none', cursor: 'pointer',
+                          fontSize: '0.8125rem', fontWeight: 600,
+                          fontFamily: '"Red Hat Text", sans-serif',
+                          background: inputMode === tab.id ? 'white' : 'transparent',
+                          color: inputMode === tab.id ? (tab.id === 'jira' ? '#0066CC' : '#151515') : '#6A6E73',
+                          borderBottom: inputMode === tab.id
+                            ? `2px solid ${tab.id === 'jira' ? '#0066CC' : '#EE0000'}`
+                            : '2px solid transparent',
+                          transition: 'all 0.15s',
+                          borderRadius: tab.id === 'vision' ? '16px 0 0 0' : '0 16px 0 0',
                         }}
                       >
-                        {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
-                      </MenuToggle>
-                    )}
-                  >
-                    <SelectList>
-                      <SelectOption value="review" description="Job will pause for you to review and approve the plan before generating code.">
-                        🔍 Review plan before coding
-                      </SelectOption>
-                      <SelectOption value="auto" description="Job will automatically generate code based on the plan without waiting for approval.">
-                        ⚡ Auto-approve plan
-                      </SelectOption>
-                    </SelectList>
-                  </Select>
-                  {reviewPlanOverride !== null && (
-                    <Button
-                      variant="link"
-                      isInline
-                      onClick={() => setReviewPlanOverride(null)}
-                      style={{ fontSize: '0.75rem' }}
-                    >
-                      Reset to default
-                    </Button>
-                  )}
-                </div>
-              </div>
-
-              {/* Jira issue linker */}
-              <div style={{
-                marginTop: '0.75rem', background: 'white', borderRadius: '10px',
-                border: '1px solid #E7E7E7', padding: '0.75rem 1rem',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: selectedJiraIssue ? '0.5rem' : 0 }}>
-                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#151515' }}>🔗 Link Jira Issue</span>
-                  <span style={{ fontSize: '0.75rem', color: '#6A6E73' }}>(optional)</span>
-                  {selectedJiraIssue && (
-                    <button
-                      onClick={() => { setSelectedJiraIssue(null); setJiraQuery(''); setJiraResults([]); setJiraPickerOpen(false); }}
-                      style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#6A6E73', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
-                    >
-                      ✕ Remove
-                    </button>
-                  )}
-                </div>
-
-                {selectedJiraIssue ? (
-                  <a href={selectedJiraIssue.url} target="_blank" rel="noreferrer" style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                    background: 'rgba(0,102,204,0.06)', border: '1px solid rgba(0,102,204,0.2)',
-                    borderRadius: '6px', padding: '0.35rem 0.75rem',
-                    fontSize: '0.8125rem', color: '#0066CC', textDecoration: 'none', fontWeight: 500,
-                  }}>
-                    <span style={{ fontWeight: 700 }}>{selectedJiraIssue.key}</span>
-                    <span style={{ color: '#3C3F42' }}>{selectedJiraIssue.summary}</span>
-                    <span style={{ fontSize: '0.7rem', color: '#6A6E73', background: '#F0F0F0', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{selectedJiraIssue.status}</span>
-                  </a>
-                ) : (
-                  <div style={{ position: 'relative' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <TextInput
-                        value={jiraQuery}
-                        onChange={(_e, v) => { handleJiraQueryChange(v); setJiraPickerOpen(true); }}
-                        onFocus={() => { if (jiraQuery) setJiraPickerOpen(true); }}
-                        placeholder="Search by issue key or summary (e.g. PROJ-123)…"
-                        style={{ fontSize: '0.8125rem', flex: 1 }}
-                        aria-label="Search Jira issues"
-                      />
-                      {jiraSearching && <Spinner size="sm" />}
-                    </div>
-                    {jiraPickerOpen && (jiraResults.length > 0 || jiraSearchError) && (
-                      <div style={{
-                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
-                        background: 'white', border: '1px solid #D2D2D2', borderRadius: '8px',
-                        boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px',
-                        maxHeight: '240px', overflowY: 'auto',
-                      }}>
-                        {jiraSearchError && (
-                          <div style={{ padding: '0.75rem', fontSize: '0.8125rem', color: '#C9190B' }}>{jiraSearchError}</div>
-                        )}
-                        {jiraResults.map((issue) => (
-                          <button
-                            key={issue.key}
-                            onClick={() => { setSelectedJiraIssue(issue); setJiraPickerOpen(false); setJiraQuery(''); setJiraResults([]); }}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%',
-                              padding: '0.5rem 0.75rem', background: 'none', border: 'none',
-                              cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid #F0F0F0',
-                            }}
-                            onMouseOver={(e) => { e.currentTarget.style.background = '#F5F5F5'; }}
-                            onMouseOut={(e) => { e.currentTarget.style.background = 'none'; }}
-                          >
-                            <span style={{ fontWeight: 700, color: '#0066CC', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>{issue.key}</span>
-                            <span style={{ fontSize: '0.8125rem', color: '#151515', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{issue.summary}</span>
-                            <span style={{ fontSize: '0.7rem', color: '#6A6E73', background: '#F0F0F0', borderRadius: '4px', padding: '0.1rem 0.35rem', whiteSpace: 'nowrap' }}>{issue.status}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                        {tab.label}
+                      </button>
+                    ))}
                   </div>
                 )}
+
+                <div style={{ padding: '1.25rem' }}>
+                  {/* ── Vision mode ── */}
+                  {inputMode === 'vision' && (
+                    <TextArea
+                      value={vision}
+                      onChange={(_e, v) => setVision(v)}
+                      placeholder="Describe your project vision..."
+                      style={{
+                        minHeight: '120px', fontSize: '0.9375rem',
+                        fontFamily: '"Red Hat Text", sans-serif',
+                        border: 'none', padding: '0', resize: 'none',
+                        lineHeight: 1.6, color: '#151515',
+                      }}
+                      aria-label="Project description"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreateProject();
+                      }}
+                    />
+                  )}
+
+                  {/* ── Jira mode ── */}
+                  {inputMode === 'jira' && (
+                    <div>
+                      {selectedJiraIssue ? (
+                        /* Selected issue card */
+                        <div style={{
+                          background: 'rgba(0,102,204,0.04)', border: '1px solid rgba(0,102,204,0.2)',
+                          borderRadius: '10px', padding: '0.875rem 1rem',
+                          display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                              <a
+                                href={selectedJiraIssue.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ fontWeight: 700, color: '#0066CC', fontSize: '0.875rem', textDecoration: 'none' }}
+                              >
+                                {selectedJiraIssue.key}
+                              </a>
+                              <span style={{
+                                fontSize: '0.7rem', color: '#6A6E73', background: '#F0F0F0',
+                                borderRadius: '4px', padding: '0.1rem 0.4rem',
+                              }}>{selectedJiraIssue.issue_type}</span>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                color: selectedJiraIssue.status === 'Done' ? '#3E8635' : '#0066CC',
+                                background: selectedJiraIssue.status === 'Done' ? 'rgba(62,134,53,0.08)' : 'rgba(0,102,204,0.08)',
+                                borderRadius: '4px', padding: '0.1rem 0.4rem',
+                              }}>{selectedJiraIssue.status}</span>
+                            </div>
+                            <div style={{ fontSize: '0.9375rem', color: '#151515', fontWeight: 500 }}>
+                              {selectedJiraIssue.summary}
+                            </div>
+                          </div>
+                          <button
+                            onClick={handleClearJiraIssue}
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              color: '#6A6E73', fontSize: '1rem', padding: '0.1rem 0.3rem',
+                              borderRadius: '4px', lineHeight: 1,
+                            }}
+                            title="Change issue"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        /* Search input */
+                        <div style={{ position: 'relative' }}>
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                            border: '1.5px solid rgba(0,102,204,0.4)', borderRadius: '10px',
+                            padding: '0.6rem 0.875rem', background: 'white',
+                          }}>
+                            <span style={{ color: '#0066CC', fontSize: '1rem' }}>🔍</span>
+                            <input
+                              ref={jiraInputRef}
+                              autoFocus
+                              value={jiraQuery}
+                              onChange={(e) => handleJiraQueryChange(e.target.value)}
+                              onFocus={() => { if (jiraResults.length > 0) setJiraPickerOpen(true); }}
+                              placeholder="Search by issue key or title — e.g. PROJ-123 or 'login page'…"
+                              style={{
+                                flex: 1, border: 'none', outline: 'none', fontSize: '0.9375rem',
+                                fontFamily: '"Red Hat Text", sans-serif', color: '#151515',
+                                background: 'transparent',
+                              }}
+                            />
+                            {jiraSearching && <Spinner size="sm" />}
+                          </div>
+                          {jiraPickerOpen && (jiraResults.length > 0 || jiraSearchError) && (
+                            <div style={{
+                              position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 300,
+                              background: 'white', border: '1px solid #D2D2D2', borderRadius: '10px',
+                              boxShadow: '0 6px 24px rgba(0,0,0,0.14)',
+                              maxHeight: '280px', overflowY: 'auto',
+                            }}>
+                              {jiraSearchError && (
+                                <div style={{ padding: '0.875rem', fontSize: '0.8125rem', color: '#C9190B' }}>
+                                  {jiraSearchError}
+                                </div>
+                              )}
+                              {jiraResults.map((issue, idx) => (
+                                <button
+                                  key={issue.key}
+                                  onClick={() => handleSelectJiraIssue(issue)}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: '0.625rem',
+                                    width: '100%', padding: '0.625rem 0.875rem',
+                                    background: 'none', border: 'none', cursor: 'pointer',
+                                    textAlign: 'left',
+                                    borderBottom: idx < jiraResults.length - 1 ? '1px solid #F0F0F0' : 'none',
+                                  }}
+                                  onMouseOver={(e) => { e.currentTarget.style.background = '#F5F5F5'; }}
+                                  onMouseOut={(e) => { e.currentTarget.style.background = 'none'; }}
+                                >
+                                  <span style={{ fontWeight: 700, color: '#0066CC', fontSize: '0.8125rem', whiteSpace: 'nowrap', minWidth: '70px' }}>
+                                    {issue.key}
+                                  </span>
+                                  <span style={{ fontSize: '0.875rem', color: '#151515', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {issue.summary}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.7rem', color: '#6A6E73', background: '#F0F0F0',
+                                    borderRadius: '4px', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap',
+                                  }}>
+                                    {issue.status}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Bottom bar: backend + submit */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    marginTop: '0.75rem', paddingTop: '0.75rem',
+                    borderTop: '1px solid #F0F0F0',
+                  }}>
+                    <Select
+                      toggle={(toggleRef) => (
+                        <MenuToggle ref={toggleRef}
+                          onClick={() => setBackendSelectOpen(!backendSelectOpen)}
+                          isExpanded={backendSelectOpen}
+                          style={{ fontSize: '0.8125rem', padding: '0.3rem 0.75rem', minWidth: '150px', border: '1px solid #D2D2D2', borderRadius: '8px' }}
+                        >
+                          {backends.find((b) => b.name === selectedBackend)?.display_name || 'OPL AI Team'}
+                        </MenuToggle>
+                      )}
+                      onSelect={(_e, s) => { setSelectedBackend(s as string); setBackendSelectOpen(false); }}
+                      selected={selectedBackend}
+                      isOpen={backendSelectOpen}
+                      onOpenChange={setBackendSelectOpen}
+                      aria-label="Select agentic system"
+                    >
+                      <SelectList>
+                        {backends.map((b) => (
+                          <SelectOption key={b.name} value={b.name} isDisabled={!b.available}>
+                            {b.display_name}{!b.available && <span style={{ color: '#8A8D90', fontSize: '0.7rem', marginLeft: '0.4rem' }}>(N/A)</span>}
+                          </SelectOption>
+                        ))}
+                      </SelectList>
+                    </Select>
+                    <Button variant="primary" onClick={handleCreateProject}
+                      isLoading={creating}
+                      isDisabled={creating || (inputMode === 'vision' ? !vision.trim() : !selectedJiraIssue)}
+                      style={{
+                        backgroundColor: inputMode === 'jira' ? '#0066CC' : '#EE0000',
+                        border: 'none', fontWeight: 600,
+                        padding: '0.5rem 1.75rem', fontSize: '0.875rem', borderRadius: '10px', color: 'white',
+                      }}
+                      icon={creating ? <Spinner size="sm" /> : <RocketIcon />} iconPosition="end">
+                      {creating ? 'Creating...' : 'Start Building'}
+                    </Button>
+                  </div>
+
+                  {/* Per-job plan review toggle */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    marginTop: '1rem', flexWrap: 'wrap',
+                  }}>
+                    <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Plan Approval:</Label>
+                    <Select
+                      id="plan-review-select"
+                      isOpen={reviewPlanSelectOpen}
+                      selected={effectiveAutoApprove ? 'auto' : 'review'}
+                      onSelect={(_e, val) => {
+                        setReviewPlanOverride(val === 'auto');
+                        setReviewPlanSelectOpen(false);
+                      }}
+                      onOpenChange={(isOpen) => setReviewPlanSelectOpen(isOpen)}
+                      toggle={(toggleRef) => (
+                        <MenuToggle
+                          ref={toggleRef}
+                          onClick={() => setReviewPlanSelectOpen(!reviewPlanSelectOpen)}
+                          isExpanded={reviewPlanSelectOpen}
+                          style={{
+                            backgroundColor: 'white', border: '1px solid #D2D2D2',
+                            borderRadius: '8px', fontSize: '0.875rem',
+                            minWidth: '240px', color: '#151515',
+                          }}
+                        >
+                          {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
+                        </MenuToggle>
+                      )}
+                    >
+                      <SelectList>
+                        <SelectOption value="review" description="Job will pause for you to review and approve the plan before generating code.">
+                          🔍 Review plan before coding
+                        </SelectOption>
+                        <SelectOption value="auto" description="Job will automatically generate code based on the plan without waiting for approval.">
+                          ⚡ Auto-approve plan
+                        </SelectOption>
+                      </SelectList>
+                    </Select>
+                    {reviewPlanOverride !== null && (
+                      <Button
+                        variant="link"
+                        isInline
+                        onClick={() => setReviewPlanOverride(null)}
+                        style={{ fontSize: '0.75rem' }}
+                      >
+                        Reset to default
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Example prompt pills */}
