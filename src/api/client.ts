@@ -565,6 +565,49 @@ export async function reloadSkills(): Promise<{ status: string }> {
   return data;
 }
 
+// ── Jira configuration ───────────────────────────────────────────────────────
+
+export interface JiraConfig {
+  configured: boolean;
+  jira_base_url?: string;
+  jira_email?: string;
+  api_token_masked?: string;
+  updated_at?: string;
+}
+
+export interface JiraConfigInput {
+  jira_base_url: string;
+  jira_email: string;
+  api_token: string;
+}
+
+export interface JiraTestResult {
+  ok: boolean;
+  display_name?: string;
+  account_id?: string;
+  error?: string;
+}
+
+export async function getJiraConfig(): Promise<JiraConfig> {
+  const { data } = await api.get<JiraConfig>('/api/jira/config');
+  return data;
+}
+
+export async function saveJiraConfig(cfg: JiraConfigInput): Promise<{ saved: boolean }> {
+  const { data } = await api.post<{ saved: boolean }>('/api/jira/config', cfg);
+  return data;
+}
+
+export async function deleteJiraConfig(): Promise<{ deleted: boolean }> {
+  const { data } = await api.delete<{ deleted: boolean }>('/api/jira/config');
+  return data;
+}
+
+export async function testJiraConnection(cfg: JiraConfigInput): Promise<JiraTestResult> {
+  const { data } = await api.post<JiraTestResult>('/api/jira/test-connection', cfg);
+  return data;
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 export async function getHealth(): Promise<HealthCheck> {
   const { data } = await api.get<HealthCheck>('/health');

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card,
   CardTitle,
@@ -26,9 +26,14 @@ import {
   Flex,
   FlexItem,
   Label,
+  Spinner,
+  ActionList,
+  ActionListItem,
 } from '@patternfly/react-core';
-import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon } from '@patternfly/react-icons';
+import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon, LinkIcon, CheckCircleIcon, TimesCircleIcon } from '@patternfly/react-icons';
 import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
+import { getJiraConfig, saveJiraConfig, deleteJiraConfig, testJiraConnection } from '../api/client';
+import type { JiraConfig } from '../api/client';
 
 const Settings: React.FC = () => {
   const [activeTabKey, setActiveTabKey] = useState<string | number>(0);
@@ -51,6 +56,76 @@ const Settings: React.FC = () => {
   const [slackNotifications, setSlackNotifications] = useState(false);
   const [jobCompletionNotif, setJobCompletionNotif] = useState(true);
   const [errorNotif, setErrorNotif] = useState(true);
+
+  // Jira configuration
+  const [jiraConfig, setJiraConfig] = useState<JiraConfig | null>(null);
+  const [jiraBaseUrl, setJiraBaseUrl] = useState('');
+  const [jiraEmail, setJiraEmail] = useState('');
+  const [jiraToken, setJiraToken] = useState('');
+  const [jiraLoading, setJiraLoading] = useState(false);
+  const [jiraTestStatus, setJiraTestStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [jiraSaveStatus, setJiraSaveStatus] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    getJiraConfig()
+      .then(cfg => {
+        setJiraConfig(cfg);
+        if (cfg.configured) {
+          setJiraBaseUrl(cfg.jira_base_url || '');
+          setJiraEmail(cfg.jira_email || '');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleJiraTest = async () => {
+    setJiraTestStatus(null);
+    setJiraLoading(true);
+    try {
+      const result = await testJiraConnection({ jira_base_url: jiraBaseUrl, jira_email: jiraEmail, api_token: jiraToken });
+      setJiraTestStatus(result.ok
+        ? { ok: true, message: `Connected as ${result.display_name}` }
+        : { ok: false, message: result.error || 'Connection failed' }
+      );
+    } catch {
+      setJiraTestStatus({ ok: false, message: 'Request failed — check the console' });
+    } finally {
+      setJiraLoading(false);
+    }
+  };
+
+  const handleJiraSave = async () => {
+    setJiraSaveStatus(null);
+    setJiraLoading(true);
+    try {
+      await saveJiraConfig({ jira_base_url: jiraBaseUrl, jira_email: jiraEmail, api_token: jiraToken });
+      const cfg = await getJiraConfig();
+      setJiraConfig(cfg);
+      setJiraToken('');
+      setJiraSaveStatus({ ok: true, message: 'Jira credentials saved.' });
+    } catch {
+      setJiraSaveStatus({ ok: false, message: 'Failed to save credentials.' });
+    } finally {
+      setJiraLoading(false);
+    }
+  };
+
+  const handleJiraDisconnect = async () => {
+    setJiraLoading(true);
+    try {
+      await deleteJiraConfig();
+      setJiraConfig({ configured: false });
+      setJiraBaseUrl('');
+      setJiraEmail('');
+      setJiraToken('');
+      setJiraTestStatus(null);
+      setJiraSaveStatus(null);
+    } catch {
+      setJiraSaveStatus({ ok: false, message: 'Failed to remove credentials.' });
+    } finally {
+      setJiraLoading(false);
+    }
+  };
 
   const models = [
     'qwen3-14b',
@@ -381,8 +456,127 @@ const Settings: React.FC = () => {
               </div>
             </Tab>
 
+            {/* Jira Integration Tab */}
+            <Tab eventKey={4} title={<TabTitleText><LinkIcon /> Jira</TabTitleText>}>
+              <div style={{ padding: '1.5rem 0', maxWidth: '640px' }}>
+                <Title headingLevel="h3" size="lg" style={{ marginBottom: '0.5rem' }}>
+                  Jira Integration
+                </Title>
+                <p style={{ color: '#6A6E73', marginBottom: '1.5rem' }}>
+                  Connect your Atlassian Jira account. Your API token is encrypted at rest and never exposed in the UI.
+                </p>
+
+                {/* Connection status badge */}
+                {jiraConfig !== null && (
+                  <div style={{ marginBottom: '1.25rem' }}>
+                    {jiraConfig.configured ? (
+                      <Label color="green" icon={<CheckCircleIcon />}>
+                        Connected — {jiraConfig.jira_email} · updated {jiraConfig.updated_at?.slice(0, 10)}
+                      </Label>
+                    ) : (
+                      <Label color="grey" icon={<TimesCircleIcon />}>Not connected</Label>
+                    )}
+                  </div>
+                )}
+
+                <Form>
+                  <FormGroup label="Jira Base URL" fieldId="jira-base-url" isRequired>
+                    <TextInput
+                      id="jira-base-url"
+                      value={jiraBaseUrl}
+                      onChange={(_e, v) => setJiraBaseUrl(v)}
+                      placeholder="https://your-org.atlassian.net"
+                      type="url"
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      For Jira Cloud: <code>https://your-org.atlassian.net</code>. For Jira Server use your host URL.
+                    </p>
+                  </FormGroup>
+
+                  <FormGroup label="Email" fieldId="jira-email" isRequired>
+                    <TextInput
+                      id="jira-email"
+                      value={jiraEmail}
+                      onChange={(_e, v) => setJiraEmail(v)}
+                      placeholder="you@example.com"
+                      type="email"
+                    />
+                  </FormGroup>
+
+                  <FormGroup
+                    label="API Token"
+                    fieldId="jira-token"
+                    isRequired={!jiraConfig?.configured}
+                    helperText={jiraConfig?.configured
+                      ? `Current token: ${jiraConfig.api_token_masked} — enter a new value to rotate`
+                      : undefined}
+                  >
+                    <TextInput
+                      id="jira-token"
+                      value={jiraToken}
+                      onChange={(_e, v) => setJiraToken(v)}
+                      type="password"
+                      placeholder={jiraConfig?.configured ? '••••••••  (leave blank to keep existing)' : 'Paste your API token'}
+                      autoComplete="new-password"
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Generate at: <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer">
+                        id.atlassian.com → API tokens
+                      </a>
+                    </p>
+                  </FormGroup>
+                </Form>
+
+                {/* Status messages */}
+                {jiraTestStatus && (
+                  <Alert
+                    variant={jiraTestStatus.ok ? 'success' : 'danger'}
+                    title={jiraTestStatus.message}
+                    isInline
+                    style={{ marginTop: '1rem' }}
+                  />
+                )}
+                {jiraSaveStatus && (
+                  <Alert
+                    variant={jiraSaveStatus.ok ? 'success' : 'danger'}
+                    title={jiraSaveStatus.message}
+                    isInline
+                    style={{ marginTop: '1rem' }}
+                  />
+                )}
+
+                <ActionList style={{ marginTop: '1.5rem' }}>
+                  <ActionListItem>
+                    <Button
+                      variant="secondary"
+                      onClick={handleJiraTest}
+                      isDisabled={jiraLoading || !jiraBaseUrl || !jiraEmail || (!jiraToken && !jiraConfig?.configured)}
+                    >
+                      {jiraLoading ? <Spinner size="sm" /> : 'Test Connection'}
+                    </Button>
+                  </ActionListItem>
+                  <ActionListItem>
+                    <Button
+                      variant="primary"
+                      onClick={handleJiraSave}
+                      isDisabled={jiraLoading || !jiraBaseUrl || !jiraEmail || (!jiraToken && !jiraConfig?.configured)}
+                    >
+                      {jiraLoading ? <Spinner size="sm" /> : (jiraConfig?.configured ? 'Update Credentials' : 'Save & Connect')}
+                    </Button>
+                  </ActionListItem>
+                  {jiraConfig?.configured && (
+                    <ActionListItem>
+                      <Button variant="danger" onClick={handleJiraDisconnect} isDisabled={jiraLoading}>
+                        Disconnect
+                      </Button>
+                    </ActionListItem>
+                  )}
+                </ActionList>
+              </div>
+            </Tab>
+
             {/* About Tab */}
-            <Tab eventKey={4} title={<TabTitleText><UserIcon /> About</TabTitleText>}>
+            <Tab eventKey={5} title={<TabTitleText><UserIcon /> About</TabTitleText>}>
               <div style={{ padding: '1.5rem 0' }}>
                 <Title headingLevel="h3" size="lg" style={{ marginBottom: '1rem' }}>
                   About AI Crew Studio
