@@ -117,6 +117,7 @@ const Landing: React.FC = () => {
   const { prefs } = useWorkflowPrefs();
   // per-job: true means skip review even if server plan_review is enabled
   const [reviewPlanOverride, setReviewPlanOverride] = useState<boolean | null>(null);
+  const [reviewPlanSelectOpen, setReviewPlanSelectOpen] = useState(false);
   // resolved: null → follow global pref; true/false → explicit per-job choice
   const effectiveAutoApprove = reviewPlanOverride !== null
     ? reviewPlanOverride
@@ -920,42 +921,52 @@ const Landing: React.FC = () => {
                 {/* Per-job plan review toggle */}
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  marginTop: '0.75rem', flexWrap: 'wrap',
+                  marginTop: '1rem', flexWrap: 'wrap',
                 }}>
-                  <button
-                    type="button"
-                    onClick={() => setReviewPlanOverride(!effectiveAutoApprove ? null : false)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '0.4rem',
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      padding: '0.2rem 0.5rem', borderRadius: '6px',
-                      fontSize: '0.8rem', color: effectiveAutoApprove ? '#3E8635' : '#6A6E73',
-                      fontFamily: '"Red Hat Text", sans-serif',
+                  <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Plan Approval:</Label>
+                  <Select
+                    id="plan-review-select"
+                    isOpen={reviewPlanSelectOpen}
+                    selected={effectiveAutoApprove ? 'auto' : 'review'}
+                    onSelect={(e, val) => {
+                      setReviewPlanOverride(val === 'auto');
+                      setReviewPlanSelectOpen(false);
                     }}
-                    title={effectiveAutoApprove
-                      ? 'Auto-approve is ON — click to require plan review for this job'
-                      : 'Click to skip plan review for this job (auto-approve)'}
-                  >
-                    <span style={{
-                      display: 'inline-block', width: '12px', height: '12px',
-                      borderRadius: '50%',
-                      background: effectiveAutoApprove ? '#3E8635' : '#C7C7C7',
-                      flexShrink: 0,
-                    }} />
-                    {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
-                    {reviewPlanOverride !== null && (
-                      <span style={{ color: '#0066CC', fontSize: '0.7rem' }}>
-                        (overridden)
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setReviewPlanOverride(null); }}
-                          style={{ marginLeft: '0.25rem', border: 'none', background: 'none', cursor: 'pointer', color: '#0066CC', fontSize: '0.7rem' }}
-                        >
-                          reset
-                        </button>
-                      </span>
+                    onOpenChange={(isOpen) => setReviewPlanSelectOpen(isOpen)}
+                    toggle={(toggleRef) => (
+                      <MenuToggle
+                        ref={toggleRef}
+                        onClick={() => setReviewPlanSelectOpen(!reviewPlanSelectOpen)}
+                        isExpanded={reviewPlanSelectOpen}
+                        style={{
+                          backgroundColor: 'white', border: '1px solid #D2D2D2',
+                          borderRadius: '8px', fontSize: '0.875rem',
+                          minWidth: '240px', color: '#151515',
+                        }}
+                      >
+                        {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
+                      </MenuToggle>
                     )}
-                  </button>
+                  >
+                    <SelectList>
+                      <SelectOption value="review" description="Job will pause for you to review and approve the plan before generating code.">
+                        🔍 Review plan before coding
+                      </SelectOption>
+                      <SelectOption value="auto" description="Job will automatically generate code based on the plan without waiting for approval.">
+                        ⚡ Auto-approve plan
+                      </SelectOption>
+                    </SelectList>
+                  </Select>
+                  {reviewPlanOverride !== null && (
+                    <Button
+                      variant="link"
+                      isInline
+                      onClick={() => setReviewPlanOverride(null)}
+                      style={{ fontSize: '0.75rem' }}
+                    >
+                      Reset to default
+                    </Button>
+                  )}
                 </div>
               </div>
 
