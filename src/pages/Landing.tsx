@@ -107,7 +107,7 @@ const Landing: React.FC = () => {
   const [srcDragActive, setSrcDragActive] = useState(false);
 
   // Team scoping — populated from the JWT by useAuth
-  const { teams } = useAuth();
+  const { teams, loading: authLoading } = useAuth();
   const [selectedTeam, setSelectedTeam] = useState<string | undefined>(undefined);
   const [teamSelectOpen, setTeamSelectOpen] = useState(false);
 
@@ -152,12 +152,13 @@ const Landing: React.FC = () => {
       });
   }, []);
 
-  // Check whether the user has Jira configured
+  // Check whether the user has Jira configured — wait for auth to finish loading
   useEffect(() => {
+    if (authLoading) return;
     getJiraConfig()
       .then((cfg) => setJiraConnected(cfg.configured))
       .catch(() => setJiraConnected(false));
-  }, []);
+  }, [authLoading]);
 
   /* ── Jira issue search ───────────────────────────────────────────────────── */
   const handleJiraQueryChange = (q: string) => {
