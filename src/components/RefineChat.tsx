@@ -271,14 +271,6 @@ const RefineChat: React.FC<RefineChatProps> = ({
     }
   }, [welcomeImport, selectedJobId, historyLoaded]);
 
-  /* Open refine drawer once when coming from Import & Iterate completion link */
-  useEffect(() => {
-    if (welcomeImport && selectedJobId && historyLoaded && !welcomeImportConsumed.current) {
-      welcomeImportConsumed.current = true;
-      setOpen(true);
-    }
-  }, [welcomeImport, selectedJobId, historyLoaded]);
-
   /* ── Auto-scroll to bottom ──────────────────────────────────────── */
   useEffect(() => {
     if (scrollRef.current) {

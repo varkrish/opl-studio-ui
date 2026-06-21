@@ -253,6 +253,31 @@ export async function startImportAnalysis(jobId: string): Promise<{ status: stri
   return data;
 }
 
+/**
+ * Fix existing repo: import + auto fix refine (JIRA bug path or manual fix intake).
+ */
+export async function createFixJob(
+  vision: string,
+  githubUrls: string[],
+  metadata?: Record<string, unknown>,
+  backend?: string,
+): Promise<{ job_id: string; status: string; source_files?: number; github_repos?: number }> {
+  const formData = new FormData();
+  formData.append('vision', vision);
+  formData.append('mode', 'fix');
+  if (backend) formData.append('backend', backend);
+  if (metadata) formData.append('metadata', JSON.stringify(metadata));
+  githubUrls.forEach((url) => formData.append('github_urls', url));
+  const { data } = await api.post<{
+    job_id: string; status: string; source_files?: number; github_repos?: number;
+  }>(
+    '/api/jobs',
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return data;
+}
+
 export interface JobDocument {
   id: string;
   job_id: string;
@@ -345,14 +370,21 @@ export async function getJobBudget(jobId: string): Promise<Record<string, unknow
 }
 
 // ── Refinement ──────────────────────────────────────────────────────────────
+export type RefineScope = 'impact' | 'file' | 'project';
+
 export async function refineJob(
   jobId: string,
   prompt: string,
-  filePath?: string
+  filePath?: string,
+  opts?: { scope?: RefineScope; refinementKind?: 'fix' | 'feature' | 'edit' },
 ): Promise<{ status: string; message?: string; refinement_id?: string }> {
+  const body: Record<string, string> = { prompt };
+  if (filePath) body.file_path = filePath;
+  if (opts?.scope) body.scope = opts.scope;
+  if (opts?.refinementKind) body.refinement_kind = opts.refinementKind;
   const { data } = await api.post<{ status: string; message?: string; refinement_id?: string }>(
     `/api/jobs/${jobId}/refine`,
-    { prompt, file_path: filePath }
+    body,
   );
   return data;
 }

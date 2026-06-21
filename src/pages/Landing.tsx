@@ -1203,6 +1203,47 @@ const Landing: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Per-job plan review toggle */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  marginTop: '0.75rem', flexWrap: 'wrap',
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setReviewPlanOverride(!effectiveAutoApprove ? null : false)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.4rem',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: '0.2rem 0.5rem', borderRadius: '6px',
+                      fontSize: '0.8rem', color: effectiveAutoApprove ? '#3E8635' : '#6A6E73',
+                      fontFamily: '"Red Hat Text", sans-serif',
+                    }}
+                    title={effectiveAutoApprove
+                      ? 'Auto-approve is ON — click to require plan review for this job'
+                      : 'Click to skip plan review for this job (auto-approve)'}
+                  >
+                    <span style={{
+                      display: 'inline-block', width: '12px', height: '12px',
+                      borderRadius: '50%',
+                      background: effectiveAutoApprove ? '#3E8635' : '#C7C7C7',
+                      flexShrink: 0,
+                    }} />
+                    {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
+                    {reviewPlanOverride !== null && (
+                      <span style={{ color: '#0066CC', fontSize: '0.7rem' }}>
+                        (overridden)
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setReviewPlanOverride(null); }}
+                          style={{ marginLeft: '0.25rem', border: 'none', background: 'none', cursor: 'pointer', color: '#0066CC', fontSize: '0.7rem' }}
+                        >
+                          reset
+                        </button>
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Example prompt pills */}
