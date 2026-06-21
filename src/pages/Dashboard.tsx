@@ -487,18 +487,20 @@ const Dashboard: React.FC = () => {
               <thead>
                 <tr style={{ borderBottom: '2px solid #E8E8E8', textAlign: 'left' }}>
                   {([
-                    ['Vision', 'vision', '28%'],
+                    ['Vision', 'vision', '22%'],
                     ['Status', 'status', '9%'],
                     ['Phase', 'current_phase', '11%'],
-                    ['Progress', 'progress', '14%'],
+                    ['Progress', 'progress', '12%'],
+                    ['Cost', 'cost', '6%'],
+                    ['Tokens', 'tokens', '8%'],
                     ['Created', 'created_at', '14%'],
-                  ] as [string, SortCol, string][]).map(([label, col, width]) => (
+                  ] as [string, SortCol | 'cost' | 'tokens', string][]).map(([label, col, width]) => (
                     <th
                       key={col}
-                      onClick={() => handleSort(col)}
+                      onClick={() => col !== 'cost' && col !== 'tokens' && handleSort(col as SortCol)}
                       style={{
                         padding: '0.75rem 1rem', fontWeight: 600, color: '#6A6E73',
-                        width, cursor: 'pointer', userSelect: 'none',
+                        width, cursor: (col === 'cost' || col === 'tokens') ? 'default' : 'pointer', userSelect: 'none',
                       }}
                     >
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -574,6 +576,12 @@ const Dashboard: React.FC = () => {
                           {job.progress}%
                         </span>
                       </div>
+                    </td>
+                    <td style={{ padding: '0.625rem 1rem', color: '#6A6E73', fontSize: '0.8rem' }}>
+                      ${(job.cost ?? 0).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '0.625rem 1rem', color: '#6A6E73', fontSize: '0.8rem' }}>
+                      {(job.tokens ?? 0).toLocaleString()}
                     </td>
                     <td onClick={() => setSelectedJobId(job.id)} style={{ padding: '0.625rem 1rem', color: '#6A6E73', fontSize: '0.8rem', cursor: 'pointer' }}>
                       {new Date(job.created_at).toLocaleString()}
