@@ -596,6 +596,11 @@ const Dashboard: React.FC = () => {
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', textDecoration: 'none' }}
                         >
                           <Label isCompact color="blue">{job.metadata.jira_issue_key}</Label>
+                          {job.metadata.jira_issue_summary && (
+                            <span style={{ fontSize: '0.75rem', color: '#3C3F42', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {job.metadata.jira_issue_summary}
+                            </span>
+                          )}
                         </a>
                       ) : (
                         <span style={{ color: '#D2D2D2' }}>—</span>

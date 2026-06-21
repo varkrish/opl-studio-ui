@@ -70,6 +70,7 @@ export async function createJob(
   backend?: string,
   teamId?: string,
   autoApprovePlan?: boolean,
+  jiraIssue?: JiraIssue,
 ): Promise<{ job_id: string; status: string; documents: number; github_repos: number }> {
   const hasFiles = documents && documents.length > 0;
   const hasGithub = githubUrls && githubUrls.length > 0;
@@ -80,6 +81,11 @@ export async function createJob(
     if (backend) formData.append('backend', backend);
     if (teamId) formData.append('team_id', teamId);
     if (autoApprovePlan) formData.append('auto_approve_plan', 'true');
+    if (jiraIssue) {
+      formData.append('jira_issue_key', jiraIssue.key);
+      formData.append('jira_issue_url', jiraIssue.url);
+      formData.append('jira_issue_summary', jiraIssue.summary);
+    }
     if (hasFiles) {
       documents!.forEach((file) => formData.append('documents', file));
     }
@@ -99,7 +105,17 @@ export async function createJob(
     job_id: string; status: string; documents: number; github_repos: number;
   }>(
     '/api/jobs',
-    { vision, backend, team_id: teamId, auto_approve_plan: autoApprovePlan ?? false }
+    {
+      vision,
+      backend,
+      team_id: teamId,
+      auto_approve_plan: autoApprovePlan ?? false,
+      ...(jiraIssue && {
+        jira_issue_key: jiraIssue.key,
+        jira_issue_url: jiraIssue.url,
+        jira_issue_summary: jiraIssue.summary,
+      }),
+    }
   );
   return data;
 }
@@ -605,6 +621,28 @@ export async function deleteJiraConfig(): Promise<{ deleted: boolean }> {
 
 export async function testJiraConnection(cfg: JiraConfigInput): Promise<JiraTestResult> {
   const { data } = await api.post<JiraTestResult>('/api/jira/test-connection', cfg);
+  return data;
+}
+
+export interface JiraIssue {
+  key: string;
+  summary: string;
+  status: string;
+  issue_type: string;
+  priority: string;
+  project: string;
+  url: string;
+}
+
+export interface JiraSearchResult {
+  issues: JiraIssue[];
+  total: number;
+}
+
+export async function searchJiraIssues(q: string, project?: string): Promise<JiraSearchResult> {
+  const params: Record<string, string> = { q };
+  if (project) params.project = project;
+  const { data } = await api.get<JiraSearchResult>('/api/jira/search', { params });
   return data;
 }
 

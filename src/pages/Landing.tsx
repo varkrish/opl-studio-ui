@@ -36,8 +36,10 @@ import {
   startRefactor,
   startImportAnalysis,
   getMigrationStatus,
+  searchJiraIssues,
 } from '../api/client';
 import type { BackendOption } from '../types';
+import type { JiraIssue } from '../api/client';
 import BuildProgress from '../components/BuildProgress';
 import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
 import { useAuth } from '../auth/OAuthProvider';
@@ -123,6 +125,15 @@ const Landing: React.FC = () => {
     ? reviewPlanOverride
     : prefs.autoApprovePlan;
 
+  // Jira issue linking
+  const [jiraQuery, setJiraQuery] = useState('');
+  const [jiraResults, setJiraResults] = useState<JiraIssue[]>([]);
+  const [jiraSearching, setJiraSearching] = useState(false);
+  const [jiraSearchError, setJiraSearchError] = useState<string | null>(null);
+  const [selectedJiraIssue, setSelectedJiraIssue] = useState<JiraIssue | null>(null);
+  const [jiraPickerOpen, setJiraPickerOpen] = useState(false);
+  const jiraSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Build state — when set, we switch to split view
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [submittedVision, setSubmittedVision] = useState('');
@@ -137,6 +148,28 @@ const Landing: React.FC = () => {
         setBackends([{ name: 'opl-ai-team', display_name: 'OPL AI Team', available: true }]);
       });
   }, []);
+
+  /* ── Jira issue search ───────────────────────────────────────────────────── */
+  const handleJiraQueryChange = (q: string) => {
+    setJiraQuery(q);
+    if (jiraSearchTimer.current) clearTimeout(jiraSearchTimer.current);
+    if (!q.trim()) { setJiraResults([]); return; }
+    jiraSearchTimer.current = setTimeout(async () => {
+      setJiraSearching(true);
+      setJiraSearchError(null);
+      try {
+        const res = await searchJiraIssues(q.trim());
+        setJiraResults(res.issues);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const isNotConfigured = msg.includes('424') || msg.includes('not configured') || msg.includes('credentials');
+        setJiraSearchError(isNotConfigured ? 'Jira not connected — go to Settings → Jira to connect.' : 'Search failed.');
+        setJiraResults([]);
+      } finally {
+        setJiraSearching(false);
+      }
+    }, 400);
+  };
 
   /* ── File handling ──────────────────────────────────────────────────────── */
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -269,6 +302,7 @@ const Landing: React.FC = () => {
         selectedBackend,
         selectedTeam,
         effectiveAutoApprove,
+        selectedJiraIssue ?? undefined,
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -968,6 +1002,81 @@ const Landing: React.FC = () => {
                     </Button>
                   )}
                 </div>
+              </div>
+
+              {/* Jira issue linker */}
+              <div style={{
+                marginTop: '0.75rem', background: 'white', borderRadius: '10px',
+                border: '1px solid #E7E7E7', padding: '0.75rem 1rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: selectedJiraIssue ? '0.5rem' : 0 }}>
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#151515' }}>🔗 Link Jira Issue</span>
+                  <span style={{ fontSize: '0.75rem', color: '#6A6E73' }}>(optional)</span>
+                  {selectedJiraIssue && (
+                    <button
+                      onClick={() => { setSelectedJiraIssue(null); setJiraQuery(''); setJiraResults([]); setJiraPickerOpen(false); }}
+                      style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#6A6E73', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                    >
+                      ✕ Remove
+                    </button>
+                  )}
+                </div>
+
+                {selectedJiraIssue ? (
+                  <a href={selectedJiraIssue.url} target="_blank" rel="noreferrer" style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                    background: 'rgba(0,102,204,0.06)', border: '1px solid rgba(0,102,204,0.2)',
+                    borderRadius: '6px', padding: '0.35rem 0.75rem',
+                    fontSize: '0.8125rem', color: '#0066CC', textDecoration: 'none', fontWeight: 500,
+                  }}>
+                    <span style={{ fontWeight: 700 }}>{selectedJiraIssue.key}</span>
+                    <span style={{ color: '#3C3F42' }}>{selectedJiraIssue.summary}</span>
+                    <span style={{ fontSize: '0.7rem', color: '#6A6E73', background: '#F0F0F0', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{selectedJiraIssue.status}</span>
+                  </a>
+                ) : (
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <TextInput
+                        value={jiraQuery}
+                        onChange={(_e, v) => { handleJiraQueryChange(v); setJiraPickerOpen(true); }}
+                        onFocus={() => { if (jiraQuery) setJiraPickerOpen(true); }}
+                        placeholder="Search by issue key or summary (e.g. PROJ-123)…"
+                        style={{ fontSize: '0.8125rem', flex: 1 }}
+                        aria-label="Search Jira issues"
+                      />
+                      {jiraSearching && <Spinner size="sm" />}
+                    </div>
+                    {jiraPickerOpen && (jiraResults.length > 0 || jiraSearchError) && (
+                      <div style={{
+                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+                        background: 'white', border: '1px solid #D2D2D2', borderRadius: '8px',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px',
+                        maxHeight: '240px', overflowY: 'auto',
+                      }}>
+                        {jiraSearchError && (
+                          <div style={{ padding: '0.75rem', fontSize: '0.8125rem', color: '#C9190B' }}>{jiraSearchError}</div>
+                        )}
+                        {jiraResults.map((issue) => (
+                          <button
+                            key={issue.key}
+                            onClick={() => { setSelectedJiraIssue(issue); setJiraPickerOpen(false); setJiraQuery(''); setJiraResults([]); }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%',
+                              padding: '0.5rem 0.75rem', background: 'none', border: 'none',
+                              cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid #F0F0F0',
+                            }}
+                            onMouseOver={(e) => { e.currentTarget.style.background = '#F5F5F5'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.background = 'none'; }}
+                          >
+                            <span style={{ fontWeight: 700, color: '#0066CC', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>{issue.key}</span>
+                            <span style={{ fontSize: '0.8125rem', color: '#151515', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{issue.summary}</span>
+                            <span style={{ fontSize: '0.7rem', color: '#6A6E73', background: '#F0F0F0', borderRadius: '4px', padding: '0.1rem 0.35rem', whiteSpace: 'nowrap' }}>{issue.status}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Example prompt pills */}

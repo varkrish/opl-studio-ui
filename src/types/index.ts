@@ -73,6 +73,7 @@ export interface JobMetadata {
   jira_issue_type?: string;
   jira_base_url?: string;
   jira_issue_url?: string;
+  jira_issue_summary?: string;
   work_intent?: 'fix' | 'deliver_epic' | 'deliver_build' | 'transform' | 'change' | 'replan';
   refinement_kind?: 'fix' | 'feature' | 'edit';
   auto_fix_after_analyze?: boolean;
