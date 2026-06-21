@@ -172,6 +172,37 @@ export async function createRefactorJob(
   return data;
 }
 
+/**
+ * Create an import job with source code.
+ */
+export async function createImportJob(
+  vision: string,
+  sourceArchive: File | null,
+  githubUrls?: string[],
+  backend?: string,
+  teamId?: string,
+): Promise<{ job_id: string; status: string; documents: number; source_files: number; github_repos: number }> {
+  const formData = new FormData();
+  formData.append('vision', vision);
+  formData.append('mode', 'import');
+  if (backend) formData.append('backend', backend);
+  if (teamId) formData.append('team_id', teamId);
+  if (sourceArchive) {
+    formData.append('source_archive', sourceArchive);
+  }
+  if (githubUrls) {
+    githubUrls.forEach((url) => formData.append('github_urls', url));
+  }
+  const { data } = await api.post<{
+    job_id: string; status: string; documents: number; source_files: number; github_repos: number;
+  }>(
+    '/api/jobs',
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return data;
+}
+
 export interface JobDocument {
   id: string;
   job_id: string;
@@ -409,6 +440,13 @@ export async function startRefactor(
     target_stack: targetStack,
     tech_preferences: techPreferences
   });
+  return data;
+}
+
+export async function startImportAnalysis(
+  jobId: string
+): Promise<{ status: string; message: string }> {
+  const { data } = await api.post(`/api/jobs/${jobId}/import`);
   return data;
 }
 
