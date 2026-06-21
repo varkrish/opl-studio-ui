@@ -314,6 +314,30 @@ export async function getRefinementHistory(jobId: string): Promise<Refinement[]>
   return data.refinements;
 }
 
+export async function getRefinementChanges(jobId: string): Promise<MigrationChanges> {
+  const { data } = await api.get<MigrationChanges>(`/api/jobs/${jobId}/refinements/changes`);
+  return data;
+}
+
+export async function getRefinementCompare(
+  jobId: string,
+  filePath: string
+): Promise<{ original: string; modified: string; error?: string }> {
+  try {
+    const { data } = await api.get<{ original: string; modified: string }>(
+      `/api/jobs/${jobId}/refinements/compare`,
+      { params: { file_path: filePath } }
+    );
+    return data;
+  } catch (err: any) {
+    return {
+      original: '',
+      modified: '',
+      error: err?.response?.data?.detail || err.message || 'Error comparing files',
+    };
+  }
+}
+
 // ── Plan Review ─────────────────────────────────────────────────────────────
 export async function getJobPlan(jobId: string): Promise<PlanReviewData> {
   const { data } = await api.get<PlanReviewData>(`/api/jobs/${jobId}/plan`);
