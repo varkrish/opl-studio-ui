@@ -283,6 +283,28 @@ export async function getRefinementHistory(jobId: string): Promise<Refinement[]>
   return data.refinements;
 }
 
+// ── Plan Review ─────────────────────────────────────────────────────────────
+export async function getJobPlan(jobId: string): Promise<PlanReviewData> {
+  const { data } = await api.get<PlanReviewData>(`/api/jobs/${jobId}/plan`);
+  return data;
+}
+
+export async function approveJob(jobId: string): Promise<{ job_id: string; status: string }> {
+  const { data } = await api.post<{ job_id: string; status: string }>(`/api/jobs/${jobId}/approve`);
+  return data;
+}
+
+export async function refinePlan(
+  jobId: string,
+  feedback: string
+): Promise<{ status: string; message?: string }> {
+  const { data } = await api.post<{ status: string; message?: string }>(
+    `/api/jobs/${jobId}/refine-plan`,
+    { feedback }
+  );
+  return data;
+}
+
 /** Base URL for job preview (append file path). Use in iframe src with sandbox. */
 export function getPreviewUrl(jobId: string, filePath: string): string {
   const base = import.meta.env.VITE_API_URL || '';
