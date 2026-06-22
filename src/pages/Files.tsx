@@ -48,6 +48,7 @@ import { buildFileTree } from '../utils/fileTree';
 import type { JobSummary, FileTreeNode } from '../types';
 import RefineChat from '../components/RefineChat';
 import JobSearchSelect from '../components/JobSearchSelect';
+import MarkdownPreview from '../components/MarkdownPreview';
 
 /** Red Hat brand colors for Monaco theme */
 const REDHAT = {
@@ -71,6 +72,15 @@ function getLanguage(path: string): string {
     sh: 'shell', bash: 'shell', env: 'plaintext',
   };
   return map[ext] || 'plaintext';
+}
+
+function isMarkdownFile(path: string): boolean {
+  return path.toLowerCase().endsWith('.md');
+}
+
+function isHtmlFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith('.html') || lower.endsWith('.htm');
 }
 
 function defineRedHatTheme(monaco: Monaco): void {
@@ -637,7 +647,7 @@ const Files: React.FC = () => {
                   }}
                 >
                   <Editor
-                    height={selectedFile.path.toLowerCase().endsWith('.html') || selectedFile.path.toLowerCase().endsWith('.htm') ? '50%' : '100%'}
+                    height={isHtmlFile(selectedFile.path) || isMarkdownFile(selectedFile.path) ? '50%' : '100%'}
                     language={getLanguage(selectedFile.path)}
                     value={selectedFile.content}
                     theme="redhat-light"
@@ -659,7 +669,7 @@ const Files: React.FC = () => {
                     beforeMount={defineRedHatTheme}
                   />
                 </div>
-                {(selectedFile.path.toLowerCase().endsWith('.html') || selectedFile.path.toLowerCase().endsWith('.htm')) && selectedJobId && (
+                {isHtmlFile(selectedFile.path) && selectedJobId && (
                   <div style={{ borderTop: `1px solid ${REDHAT.border}`, flex: '1 1 280px', minHeight: 280 }}>
                     <div style={{ padding: '8px 12px', fontSize: '0.875rem', color: REDHAT.textMuted }}>Preview</div>
                     <iframe
@@ -668,6 +678,12 @@ const Files: React.FC = () => {
                       sandbox="allow-scripts"
                       style={{ width: '100%', height: 'calc(100% - 32px)', border: 'none', display: 'block' }}
                     />
+                  </div>
+                )}
+                {isMarkdownFile(selectedFile.path) && (
+                  <div style={{ borderTop: `1px solid ${REDHAT.border}`, flex: '1 1 280px', minHeight: 280, padding: '8px 12px', overflow: 'auto' }}>
+                    <div style={{ fontSize: '0.875rem', color: REDHAT.textMuted, marginBottom: 8 }}>Preview</div>
+                    <MarkdownPreview content={selectedFile.content} maxHeight="100%" />
                   </div>
                 )}
               </CardBody>

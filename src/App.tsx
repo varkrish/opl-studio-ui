@@ -10,6 +10,7 @@ import Settings from './pages/Settings';
 import Migration from './pages/Migration';
 import Refactor from './pages/Refactor';
 import Skills from './pages/Skills';
+import PlanReview from './pages/PlanReview';
 import { OAuthProvider } from './auth/OAuthProvider';
 
 const App: React.FC = () => {
@@ -29,6 +30,8 @@ const App: React.FC = () => {
             <Route path="/migration/:jobId" element={<Migration />} />
             <Route path="/refactor" element={<Refactor />} />
             <Route path="/refactor/:jobId" element={<Refactor />} />
+            <Route path="/review" element={<PlanReview />} />
+            <Route path="/review/:jobId" element={<PlanReview />} />
           </Route>
         </Routes>
       </BrowserRouter>

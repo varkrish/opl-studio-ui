@@ -34,6 +34,7 @@ import {
 } from '@patternfly/react-icons';
 import { getSkills, querySkills, reloadSkills } from '../api/client';
 import type { SkillInfo, SkillSearchResult } from '../types';
+import MarkdownPreview from '../components/MarkdownPreview';
 
 const tagColor = (tag: string): 'blue' | 'green' | 'orange' | 'purple' | 'cyan' | 'grey' => {
   const map: Record<string, 'blue' | 'green' | 'orange' | 'purple' | 'cyan'> = {
@@ -261,21 +262,7 @@ const Skills: React.FC = () => {
                       }
                       style={{ marginTop: '0.5rem' }}
                     >
-                      <pre
-                        style={{
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          fontSize: '0.8rem',
-                          backgroundColor: '#F5F5F5',
-                          padding: '0.75rem',
-                          borderRadius: 6,
-                          maxHeight: 300,
-                          overflow: 'auto',
-                          fontFamily: '"JetBrains Mono", "Red Hat Mono", monospace',
-                        }}
-                      >
-                        {result.content}
-                      </pre>
+                      <MarkdownPreview content={result.content} maxHeight={300} />
                     </ExpandableSection>
                   </CardBody>
                 </Card>

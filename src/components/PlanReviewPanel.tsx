@@ -1,10 +1,5 @@
 /**
  * PlanReviewPanel — universal plan review / feedback / approval panel.
- *
- * Shown whenever a job is in `pending_review` or `pending_approval` state.
- * Works for all job types:
- *   - Regular build: shows user_stories.md, design_spec.md, tech_stack.md
- *   - Epic jobs: also shows AI-decomposed story list and judge reasoning
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -14,18 +9,20 @@ import {
   Tab,
   Tabs,
   TabTitleText,
+  TabContent,
   Progress,
 } from '@patternfly/react-core';
 import {
   CheckCircleIcon,
   SyncAltIcon,
   OutlinedCommentsIcon,
-  ListIcon,
   BanIcon,
 } from '@patternfly/react-icons';
-import { approveJob, getJobPlan, refinePlan } from '../api/client';
+import { approveJob, getJobPlan, refinePlan, getGranularTasks } from '../api/client';
 import { getWorkflowPrefs } from '../hooks/useWorkflowPrefs';
-import type { PlanReviewData, JiraStory } from '../types';
+import MarkdownPreview from './MarkdownPreview';
+import GranularTaskBoard from './GranularTaskBoard';
+import type { PlanReviewData, JiraStory, GranularTask } from '../types';
 
 const AUTO_APPROVE_DELAY_SEC = 5;
 
@@ -33,26 +30,39 @@ interface Props {
   jobId: string;
   /** Called after the user approves so the parent can re-poll the job. */
   onApproved?: () => void;
+  /** embedded = compact card; page = full-height document reader */
+  layout?: 'embedded' | 'page';
 }
 
-const ARTIFACT_LABELS: Record<string, string> = {
-  'user_stories.md': '📋 User Stories',
-  'design_spec.md': '🎨 Design Spec',
-  'tech_stack.md': '🏗️ Tech Stack',
-  'requirements.md': '📄 Requirements',
+const ARTIFACT_ORDER = [
+  'user_stories.md',
+  'design_spec.md',
+  'tech_stack.md',
+  'implementation_plan.md',
+  'requirements.md',
+] as const;
+
+const ARTIFACT_TAB_LABELS: Record<string, string> = {
+  'user_stories.md': 'User Stories',
+  'design_spec.md': 'Design Spec',
+  'tech_stack.md': 'Tech Stack',
+  'implementation_plan.md': 'Implementation',
+  'requirements.md': 'Requirements',
 };
 
-const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
+const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedded' }) => {
+  const isPage = layout === 'page';
   const [plan, setPlan] = useState<PlanReviewData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<string>('stories');
+  const [activeTab, setActiveTab] = useState<string>('user_stories.md');
   const [feedback, setFeedback] = useState('');
   const [refining, setRefining] = useState(false);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refineSuccess, setRefineSuccess] = useState(false);
+  const [granularTasks, setGranularTasks] = useState<GranularTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
 
-  // Auto-approve countdown
   const autoApproveEnabled = getWorkflowPrefs().autoApprovePlan;
   const [countdown, setCountdown] = useState<number | null>(null);
   const [autoApproveCancelled, setAutoApproveCancelled] = useState(false);
@@ -62,11 +72,10 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
     try {
       const data = await getJobPlan(jobId);
       setPlan(data);
-      // Pick default tab: stories if epic, else first artifact
       if (data.jira_stories.length > 0) {
         setActiveTab('stories');
       } else {
-        const firstArtifact = Object.keys(data.artifacts)[0];
+        const firstArtifact = ARTIFACT_ORDER.find((key) => key in data.artifacts);
         if (firstArtifact) setActiveTab(firstArtifact);
       }
     } catch {
@@ -80,7 +89,23 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
     fetchPlan();
   }, [fetchPlan]);
 
-  // Start auto-approve countdown after plan loads (if pref is ON and not cancelled)
+  useEffect(() => {
+    if (activeTab === 'tasks') {
+      setTasksLoading(true);
+      getGranularTasks(jobId)
+        .then((res) => setGranularTasks(res.tasks))
+        .catch(() => setGranularTasks([]))
+        .finally(() => setTasksLoading(false));
+    }
+  }, [activeTab, jobId]);
+
+  // Pre-fetch granular tasks count for tab label
+  useEffect(() => {
+    getGranularTasks(jobId)
+      .then((res) => setGranularTasks(res.tasks))
+      .catch(() => {});
+  }, [jobId]);
+
   useEffect(() => {
     if (!autoApproveEnabled || autoApproveCancelled || loading || !plan) return;
     setCountdown(AUTO_APPROVE_DELAY_SEC);
@@ -99,7 +124,6 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
     };
   }, [autoApproveEnabled, autoApproveCancelled, loading, plan]);
 
-  // Fire approval when countdown hits 0
   useEffect(() => {
     if (countdown === 0 && !autoApproveCancelled && !approving) {
       handleApprove();
@@ -113,13 +137,9 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
     setError(null);
     setRefineSuccess(false);
     try {
-      const result = await refinePlan(jobId, feedback.trim());
-      setPlan((prev) =>
-        prev ? { ...prev, artifacts: result.artifacts ?? prev.artifacts } : prev,
-      );
+      await refinePlan(jobId, feedback.trim());
       setFeedback('');
       setRefineSuccess(true);
-      // Re-fetch to pick up updated stories too
       await fetchPlan();
     } catch {
       setError('Failed to regenerate plan. Please try again.');
@@ -157,7 +177,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
   }
 
   const hasStories = (plan?.jira_stories ?? []).length > 0;
-  const artifactKeys = Object.keys(plan?.artifacts ?? {});
+  const artifactKeys = ARTIFACT_ORDER.filter((key) => key in (plan?.artifacts ?? {}));
 
   const renderStoryList = (stories: JiraStory[]) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -193,62 +213,92 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
             {s.summary}
           </div>
           {s.description && (
-            <div style={{
-              fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem',
-              lineHeight: 1.5,
-            }}>
-              {s.description}
-            </div>
+            <MarkdownPreview content={s.description} variant="inline" />
           )}
         </div>
       ))}
     </div>
   );
 
-  const renderArtifact = (key: string, content: string) => (
-    <div style={{
-      background: '#1E1E1E', borderRadius: '10px', padding: '1rem',
-      fontFamily: '"Red Hat Mono", monospace', fontSize: '0.75rem',
-      color: '#D4D4D4', maxHeight: '320px', overflowY: 'auto',
-      lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-    }}>
-      {content || <span style={{ color: '#6A6E73' }}>No content available.</span>}
-    </div>
-  );
+  const renderActiveTabContent = () => {
+    if (activeTab === 'stories' && plan) {
+      return renderStoryList(plan.jira_stories);
+    }
+    if (activeTab === 'tasks') {
+      return (
+        <GranularTaskBoard
+          tasks={granularTasks}
+          loading={tasksLoading}
+          compact
+          title="Decomposed Tasks"
+          subtitle="Per-file tasks generated from the plan."
+        />
+      );
+    }
+    if (plan && activeTab in plan.artifacts) {
+      return (
+        <MarkdownPreview
+          content={plan.artifacts[activeTab as keyof typeof plan.artifacts] ?? ''}
+          variant="document"
+          maxHeight={isPage ? 'none' : 'min(70vh, 640px)'}
+        />
+      );
+    }
+    return null;
+  };
+
+  const shellStyle: React.CSSProperties = isPage
+    ? {
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+        background: '#FFFFFF',
+        border: '1px solid #E0E0E0',
+        borderRadius: '12px',
+        padding: '1.5rem 2rem',
+        fontFamily: '"Red Hat Text", sans-serif',
+      }
+    : {
+        background: '#FFFBF0',
+        border: '2px solid #F0AB00',
+        borderRadius: '12px',
+        padding: '1.5rem',
+        marginTop: '1rem',
+        fontFamily: '"Red Hat Text", sans-serif',
+      };
 
   return (
-    <div style={{
-      background: '#FFFBF0',
-      border: '2px solid #F0AB00',
-      borderRadius: '12px',
-      padding: '1.5rem',
-      marginTop: '1rem',
-      fontFamily: '"Red Hat Text", sans-serif',
-    }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        <span style={{ fontSize: '1.5rem' }}>🔍</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '1rem', fontWeight: 700, color: '#151515', marginBottom: '0.25rem' }}>
-            Review &amp; Approve Plan
-          </div>
-          <div style={{ fontSize: '0.8125rem', color: '#6A6E73' }}>
-            The planning phase is complete. Review the generated plan below, provide feedback to
-            regenerate, or approve to start coding.
-          </div>
-          {plan?.epic_judge_reasoning && (
+    <div style={shellStyle}>
+      <div style={{ flexShrink: 0, marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+          {!isPage && <span style={{ fontSize: '1.5rem' }}>🔍</span>}
+          <div style={{ flex: 1 }}>
             <div style={{
-              marginTop: '0.5rem', fontSize: '0.8125rem', color: '#4A4A4A',
-              background: '#FEF3C7', borderRadius: '6px', padding: '0.5rem 0.75rem',
-              borderLeft: '3px solid #F0AB00',
+              fontSize: isPage ? '1.375rem' : '1rem',
+              fontWeight: 700,
+              color: '#151515',
+              marginBottom: '0.25rem',
             }}>
-              🧠 <strong>AI Judge:</strong> {plan.epic_judge_reasoning}
+              Review &amp; Approve Plan
             </div>
-          )}
+            <div style={{ fontSize: '0.875rem', color: '#6A6E73' }}>
+              The planning phase is complete. Review the generated plan below, provide feedback to
+              regenerate, or approve to start coding.
+            </div>
+            {plan?.epic_judge_reasoning && (
+              <div style={{
+                marginTop: '0.5rem', fontSize: '0.8125rem', color: '#4A4A4A',
+                background: '#FEF3C7', borderRadius: '6px', padding: '0.5rem 0.75rem',
+                borderLeft: '3px solid #F0AB00',
+              }}>
+                <strong>AI Judge:</strong> {plan.epic_judge_reasoning}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Auto-approve countdown banner */}
       {autoApproveEnabled && !autoApproveCancelled && countdown !== null && (
         <div style={{
           background: '#F0FFF0',
@@ -259,6 +309,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
           display: 'flex',
           alignItems: 'center',
           gap: '0.75rem',
+          flexShrink: 0,
         }}>
           <span style={{ fontSize: '1rem' }}>⚡</span>
           <div style={{ flex: 1 }}>
@@ -285,36 +336,59 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
         </div>
       )}
 
-      {/* Tabs */}
-      {(hasStories || artifactKeys.length > 0) && (
-        <Tabs
-          activeKey={activeTab}
-          onSelect={(_, key) => setActiveTab(key as string)}
-          style={{ marginBottom: '1rem' }}
-          isBox={false}
-        >
-          {hasStories && (
-            <Tab
-              eventKey="stories"
-              title={<TabTitleText><ListIcon /> Stories ({plan!.jira_stories.length})</TabTitleText>}
-            >
-              <div style={{ paddingTop: '0.75rem' }}>
-                {renderStoryList(plan!.jira_stories)}
-              </div>
-            </Tab>
-          )}
-          {artifactKeys.map((key) => (
-            <Tab
-              key={key}
-              eventKey={key}
-              title={<TabTitleText>{ARTIFACT_LABELS[key] ?? key}</TabTitleText>}
-            >
-              <div style={{ paddingTop: '0.75rem' }}>
-                {renderArtifact(key, plan!.artifacts[key as keyof typeof plan.artifacts] ?? '')}
-              </div>
-            </Tab>
-          ))}
-        </Tabs>
+      {(hasStories || artifactKeys.length > 0 || granularTasks.length > 0) && (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: isPage ? 1 : undefined,
+          minHeight: isPage ? 0 : undefined,
+          marginBottom: isPage ? '1rem' : undefined,
+        }}>
+          <Tabs
+            activeKey={activeTab}
+            onSelect={(_, key) => setActiveTab(String(key))}
+            isBox={false}
+            mountOnEnter
+            unmountOnExit
+            style={{ flexShrink: 0 }}
+          >
+            {[
+              hasStories ? (
+                <Tab
+                  key="stories"
+                  eventKey="stories"
+                  title={<TabTitleText>Jira Stories ({plan!.jira_stories.length})</TabTitleText>}
+                />
+              ) : null,
+              ...artifactKeys.map((key) => (
+                <Tab
+                  key={key}
+                  eventKey={key}
+                  title={<TabTitleText>{ARTIFACT_TAB_LABELS[key] ?? key}</TabTitleText>}
+                />
+              )),
+              <Tab
+                key="tasks"
+                eventKey="tasks"
+                title={<TabTitleText>Tasks{granularTasks.length > 0 ? ` (${granularTasks.length})` : ''}</TabTitleText>}
+              />,
+            ]}
+          </Tabs>
+          <TabContent
+            eventKey={activeTab}
+            id={`plan-tab-${activeTab}`}
+            aria-labelledby={`plan-tab-${activeTab}`}
+            style={{
+              paddingTop: '1rem',
+              flex: isPage ? 1 : undefined,
+              minHeight: isPage ? 0 : undefined,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            {renderActiveTabContent()}
+          </TabContent>
+        </div>
       )}
 
       {!hasStories && artifactKeys.length === 0 && (
@@ -326,84 +400,83 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved }) => {
         </div>
       )}
 
-      {/* Feedback history */}
-      {(plan?.plan_feedback_history ?? []).length > 0 && (
+      <div style={{ flexShrink: 0 }}>
+        {(plan?.plan_feedback_history ?? []).length > 0 && (
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{
+              fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
+              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
+            }}>
+              <OutlinedCommentsIcon /> Feedback history ({plan!.plan_feedback_history.length} rounds)
+            </div>
+            {plan!.plan_feedback_history.map((round, i) => (
+              <div key={i} style={{
+                background: '#F0F8FF', border: '1px solid #BFDBFE', borderRadius: '6px',
+                padding: '0.5rem 0.75rem', marginBottom: '0.35rem',
+                fontSize: '0.8125rem', color: '#1E40AF',
+              }}>
+                <strong>Round {i + 1}:</strong> {round.feedback}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div style={{ marginBottom: '1rem' }}>
           <div style={{
             fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
             textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
           }}>
-            <OutlinedCommentsIcon /> Feedback history ({plan!.plan_feedback_history.length} rounds)
+            Provide feedback to regenerate
           </div>
-          {plan!.plan_feedback_history.map((round, i) => (
-            <div key={i} style={{
-              background: '#F0F8FF', border: '1px solid #BFDBFE', borderRadius: '6px',
-              padding: '0.5rem 0.75rem', marginBottom: '0.35rem',
-              fontSize: '0.8125rem', color: '#1E40AF',
-            }}>
-              <strong>Round {i + 1}:</strong> {round.feedback}
-            </div>
-          ))}
+          <TextArea
+            value={feedback}
+            onChange={(_e, val) => setFeedback(val)}
+            placeholder="e.g. Split the auth story into login + registration. Add a caching layer. Use PostgreSQL instead of SQLite."
+            rows={3}
+            style={{ fontFamily: '"Red Hat Text", sans-serif', fontSize: '0.875rem' }}
+            aria-label="Plan feedback"
+          />
         </div>
-      )}
 
-      {/* Feedback input */}
-      <div style={{ marginBottom: '1rem' }}>
-        <div style={{
-          fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
-          textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
-        }}>
-          Provide feedback to regenerate
+        {error && (
+          <div style={{
+            color: '#C9190B', fontSize: '0.8125rem', marginBottom: '0.75rem',
+            background: '#FFF5F5', padding: '0.5rem 0.75rem', borderRadius: '6px',
+            border: '1px solid #FECDD3',
+          }}>
+            {error}
+          </div>
+        )}
+
+        {refineSuccess && !refining && (
+          <div style={{
+            color: '#3E8635', fontSize: '0.8125rem', marginBottom: '0.75rem',
+            background: '#F3FAF3', padding: '0.5rem 0.75rem', borderRadius: '6px',
+            border: '1px solid #C8E6C9',
+          }}>
+            Plan regenerated. Review the updated plan above.
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <Button
+            variant="primary"
+            onClick={handleApprove}
+            isDisabled={approving || refining}
+            icon={approving ? <Spinner size="sm" /> : <CheckCircleIcon />}
+            style={{ backgroundColor: '#3E8635', border: 'none' }}
+          >
+            {approving ? 'Approving…' : 'Approve & Start Coding'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleRefine}
+            isDisabled={refining || approving || !feedback.trim()}
+            icon={refining ? <Spinner size="sm" /> : <SyncAltIcon />}
+          >
+            {refining ? 'Regenerating…' : 'Regenerate Plan'}
+          </Button>
         </div>
-        <TextArea
-          value={feedback}
-          onChange={(_e, val) => setFeedback(val)}
-          placeholder="e.g. Split the auth story into login + registration. Add a caching layer. Use PostgreSQL instead of SQLite."
-          rows={3}
-          style={{ fontFamily: '"Red Hat Text", sans-serif', fontSize: '0.875rem' }}
-          aria-label="Plan feedback"
-        />
-      </div>
-
-      {error && (
-        <div style={{
-          color: '#C9190B', fontSize: '0.8125rem', marginBottom: '0.75rem',
-          background: '#FFF5F5', padding: '0.5rem 0.75rem', borderRadius: '6px',
-          border: '1px solid #FECDD3',
-        }}>
-          {error}
-        </div>
-      )}
-
-      {refineSuccess && !refining && (
-        <div style={{
-          color: '#3E8635', fontSize: '0.8125rem', marginBottom: '0.75rem',
-          background: '#F3FAF3', padding: '0.5rem 0.75rem', borderRadius: '6px',
-          border: '1px solid #C8E6C9',
-        }}>
-          ✅ Plan regenerated. Review the updated plan above.
-        </div>
-      )}
-
-      {/* Action buttons */}
-      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-        <Button
-          variant="primary"
-          onClick={handleApprove}
-          isDisabled={approving || refining}
-          icon={approving ? <Spinner size="sm" /> : <CheckCircleIcon />}
-          style={{ backgroundColor: '#3E8635', border: 'none' }}
-        >
-          {approving ? 'Approving…' : 'Approve & Start Coding'}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={handleRefine}
-          isDisabled={refining || approving || !feedback.trim()}
-          icon={refining ? <Spinner size="sm" /> : <SyncAltIcon />}
-        >
-          {refining ? 'Regenerating…' : 'Regenerate Plan'}
-        </Button>
       </div>
     </div>
   );

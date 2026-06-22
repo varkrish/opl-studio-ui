@@ -22,6 +22,7 @@ import {
   getRefinementHistory,
 } from '../api/client';
 import type { Refinement, RefineScope } from '../types';
+import MarkdownPreview from './MarkdownPreview';
 import axios from 'axios';
 
 /* ─── Props ──────────────────────────────────────────────────────────── */
@@ -554,7 +555,11 @@ const RefineChat: React.FC<RefineChatProps> = ({
               <Label isCompact color="red">failed</Label>
             </div>
           )}
-          {msg.text}
+          {msg.role === 'assistant' ? (
+            <MarkdownPreview content={msg.text} variant="inline" />
+          ) : (
+            msg.text
+          )}
           {msg.role === 'assistant' && msg.status === 'running' && (
             <div style={{ marginTop: 8 }}>
               <TypingDots />

@@ -6,6 +6,7 @@ import type {
   JobsPageResponse,
   JobProgress,
   Task,
+  GranularTask,
   Agent,
   WorkspaceFile,
   HealthCheck,
@@ -219,35 +220,6 @@ export async function createImportJob(
   return data;
 }
 
-/**
- * Import existing codebase for analysis + prompt-based iteration (no greenfield build).
- */
-export async function createImportJob(
-  vision: string,
-  sourceArchive: File | null,
-  githubUrls?: string[],
-  backend?: string,
-): Promise<{ job_id: string; status: string; documents: number; source_files: number; github_repos: number }> {
-  const formData = new FormData();
-  formData.append('vision', vision);
-  formData.append('mode', 'import');
-  if (backend) formData.append('backend', backend);
-  if (sourceArchive) {
-    formData.append('source_archive', sourceArchive);
-  }
-  if (githubUrls) {
-    githubUrls.forEach((url) => formData.append('github_urls', url));
-  }
-  const { data } = await api.post<{
-    job_id: string; status: string; documents: number; source_files: number; github_repos: number;
-  }>(
-    '/api/jobs',
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
-  );
-  return data;
-}
-
 export async function startImportAnalysis(jobId: string): Promise<{ status: string; message?: string }> {
   const { data } = await api.post<{ status: string; message?: string }>(`/api/jobs/${jobId}/analyze`);
   return data;
@@ -351,6 +323,16 @@ export async function getJobTasks(
   return data;
 }
 
+// ── Job Granular Tasks ───────────────────────────────────────────────────────
+export async function getGranularTasks(
+  jobId: string
+): Promise<{ total_tasks: number; tasks: GranularTask[] }> {
+  const { data } = await api.get<{ total_tasks: number; tasks: GranularTask[] }>(
+    `/api/jobs/${jobId}/tasks/granular`
+  );
+  return data;
+}
+
 // ── Job Agents ──────────────────────────────────────────────────────────────
 export async function getJobAgents(jobId: string): Promise<Agent[]> {
   const { data } = await api.get<{ agents: Agent[] }>(`/api/jobs/${jobId}/agents`);
@@ -394,30 +376,6 @@ export async function getRefinementHistory(jobId: string): Promise<Refinement[]>
     `/api/jobs/${jobId}/refinements`
   );
   return data.refinements;
-}
-
-export async function getRefinementChanges(jobId: string): Promise<MigrationChanges> {
-  const { data } = await api.get<MigrationChanges>(`/api/jobs/${jobId}/refinements/changes`);
-  return data;
-}
-
-export async function getRefinementCompare(
-  jobId: string,
-  filePath: string
-): Promise<{ original: string; modified: string; error?: string }> {
-  try {
-    const { data } = await api.get<{ original: string; modified: string }>(
-      `/api/jobs/${jobId}/refinements/compare`,
-      { params: { file_path: filePath } }
-    );
-    return data;
-  } catch (err: any) {
-    return {
-      original: '',
-      modified: '',
-      error: err?.response?.data?.detail || err.message || 'Error comparing files',
-    };
-  }
 }
 
 // ── Plan Review ─────────────────────────────────────────────────────────────
@@ -546,13 +504,6 @@ export async function startRefactor(
     target_stack: targetStack,
     tech_preferences: techPreferences
   });
-  return data;
-}
-
-export async function startImportAnalysis(
-  jobId: string
-): Promise<{ status: string; message: string }> {
-  const { data } = await api.post(`/api/jobs/${jobId}/import`);
   return data;
 }
 
@@ -746,5 +697,50 @@ export async function getHealth(): Promise<HealthCheck> {
 
 export async function getHealthReady(): Promise<HealthCheck> {
   const { data } = await api.get<HealthCheck>('/health/ready');
+  return data;
+}
+
+// ── LLM Configuration ────────────────────────────────────────────────────────
+
+export interface LlmConfig {
+  configured: boolean;
+  api_base_url?: string;
+  api_token_masked?: string;
+  model_manager?: string;
+  model_worker?: string;
+  model_reviewer?: string;
+  updated_at?: string;
+}
+
+export interface LlmSaveRequest {
+  api_base_url: string;
+  api_key: string;
+  model_manager?: string;
+  model_worker?: string;
+  model_reviewer?: string;
+}
+
+export async function getLlmConfig(): Promise<LlmConfig> {
+  const { data } = await api.get<LlmConfig>('/api/llm/config');
+  return data;
+}
+
+export async function getLlmModels(): Promise<{ models: string[] }> {
+  const { data } = await api.get<{ models: string[] }>('/api/llm/models');
+  return data;
+}
+
+export async function saveLlmConfig(config: LlmSaveRequest): Promise<{ saved: boolean }> {
+  const { data } = await api.post<{ saved: boolean }>('/api/llm/config', config);
+  return data;
+}
+
+export async function deleteLlmConfig(): Promise<{ deleted: boolean }> {
+  const { data } = await api.delete<{ deleted: boolean }>('/api/llm/config');
+  return data;
+}
+
+export async function testLlmConnection(config: LlmSaveRequest): Promise<{ ok: boolean; message?: string; error?: string }> {
+  const { data } = await api.post<{ ok: boolean; message?: string; error?: string }>('/api/llm/test-connection', config);
   return data;
 }

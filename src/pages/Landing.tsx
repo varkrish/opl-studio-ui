@@ -783,7 +783,8 @@ const Landing: React.FC = () => {
 
           {/* ── RIGHT PANEL: Build Progress ──────────────────────────────── */}
           <div style={{
-            flex: 1, overflowY: 'auto', padding: '1.5rem 2rem',
+            flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column',
+            overflow: 'hidden', padding: '1.5rem 2rem',
           }}>
             <BuildProgress jobId={activeJobId!} vision={submittedVision} />
           </div>

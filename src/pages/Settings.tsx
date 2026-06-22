@@ -32,8 +32,8 @@ import {
 } from '@patternfly/react-core';
 import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon, LinkIcon, CheckCircleIcon, TimesCircleIcon } from '@patternfly/react-icons';
 import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
-import { getJiraConfig, saveJiraConfig, deleteJiraConfig, testJiraConnection } from '../api/client';
-import type { JiraConfig } from '../api/client';
+import { getJiraConfig, saveJiraConfig, deleteJiraConfig, testJiraConnection, getLlmConfig, saveLlmConfig, deleteLlmConfig, testLlmConnection, getLlmModels } from '../api/client';
+import type { JiraConfig, LlmConfig } from '../api/client';
 
 const Settings: React.FC = () => {
   const [activeTabKey, setActiveTabKey] = useState<string | number>(0);
@@ -45,11 +45,16 @@ const Settings: React.FC = () => {
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
 
-  // API Settings
+  // LLM API Settings
+  const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null);
+  const [apiBaseUrl, setApiBaseUrl] = useState('https://openrouter.ai/api/v1');
   const [apiKey, setApiKey] = useState('');
-  const [apiEndpoint, setApiEndpoint] = useState('http://localhost:8081');
-  const [modelSelectOpen, setModelSelectOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('qwen3-14b');
+  const [modelManager, setModelManager] = useState('deepseek/deepseek-r1-distill-qwen-14b');
+  const [modelWorker, setModelWorker] = useState('deepseek/deepseek-r1-distill-qwen-14b');
+  const [modelReviewer, setModelReviewer] = useState('deepseek/deepseek-r1-distill-qwen-14b');
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmTestStatus, setLlmTestStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [llmSaveStatus, setLlmSaveStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Notification Settings
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -66,6 +71,10 @@ const Settings: React.FC = () => {
   const [jiraTestStatus, setJiraTestStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [jiraSaveStatus, setJiraSaveStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
+  const [modelSuggestions, setModelSuggestions] = useState<string[]>([
+    'deepseek-r1-distill-qwen-14b',
+  ]);
+
   useEffect(() => {
     getJiraConfig()
       .then(cfg => {
@@ -76,7 +85,91 @@ const Settings: React.FC = () => {
         }
       })
       .catch(() => {});
+
+    getLlmConfig()
+      .then(cfg => {
+        setLlmConfig(cfg);
+        if (cfg.configured) {
+          setApiBaseUrl(cfg.api_base_url || '');
+          setModelManager(cfg.model_manager || '');
+          setModelWorker(cfg.model_worker || '');
+          setModelReviewer(cfg.model_reviewer || '');
+        }
+      })
+      .catch(() => {});
+
+    getLlmModels()
+      .then(res => {
+        if (res.models && res.models.length > 0) {
+          setModelSuggestions(res.models);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const handleLlmTest = async () => {
+    setLlmTestStatus(null);
+    setLlmLoading(true);
+    try {
+      const result = await testLlmConnection({
+        api_base_url: apiBaseUrl,
+        api_key: apiKey,
+        model_manager: modelManager,
+        model_worker: modelWorker,
+        model_reviewer: modelReviewer,
+      });
+      setLlmTestStatus(result.ok
+        ? { ok: true, message: result.message || 'Connection successful' }
+        : { ok: false, message: result.error || result.message || 'Connection failed' }
+      );
+    } catch {
+      setLlmTestStatus({ ok: false, message: 'Request failed — check the console' });
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
+  const handleLlmSave = async () => {
+    setLlmSaveStatus(null);
+    setLlmLoading(true);
+    try {
+      await saveLlmConfig({
+        api_base_url: apiBaseUrl,
+        api_key: apiKey,
+        model_manager: modelManager,
+        model_worker: modelWorker,
+        model_reviewer: modelReviewer,
+      });
+      const cfg = await getLlmConfig();
+      setLlmConfig(cfg);
+      setApiKey('');
+      setLlmSaveStatus({ ok: true, message: 'LLM credentials saved.' });
+    } catch {
+      setLlmSaveStatus({ ok: false, message: 'Failed to save credentials.' });
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
+  const handleLlmDisconnect = async () => {
+    setLlmLoading(true);
+    try {
+      await deleteLlmConfig();
+      setLlmConfig({ configured: false });
+      setApiBaseUrl('https://openrouter.ai/api/v1');
+      setApiKey('');
+      setModelManager('deepseek/deepseek-r1-distill-qwen-14b');
+      setModelWorker('deepseek/deepseek-r1-distill-qwen-14b');
+      setModelReviewer('deepseek/deepseek-r1-distill-qwen-14b');
+      setLlmTestStatus(null);
+      setLlmSaveStatus(null);
+    } catch {
+      setLlmSaveStatus({ ok: false, message: 'Failed to remove credentials.' });
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
 
   const handleJiraTest = async () => {
     setJiraTestStatus(null);
@@ -226,82 +319,151 @@ const Settings: React.FC = () => {
 
             {/* API Configuration Tab */}
             <Tab eventKey={1} title={<TabTitleText><KeyIcon /> API Configuration</TabTitleText>}>
-              <div style={{ padding: '1.5rem 0' }}>
-                <Title headingLevel="h3" size="lg" style={{ marginBottom: '1rem' }}>
-                  API Configuration
+              <div style={{ padding: '1.5rem 0', maxWidth: '640px' }}>
+                <Title headingLevel="h3" size="lg" style={{ marginBottom: '0.5rem' }}>
+                  LLM API Configuration
                 </Title>
+                <p style={{ color: '#6A6E73', marginBottom: '1.5rem' }}>
+                  Connect to your preferred LLM provider. Your API key is encrypted at rest and never exposed in the UI.
+                </p>
+
+                {/* Connection status badge */}
+                {llmConfig !== null && (
+                  <div style={{ marginBottom: '1.25rem' }}>
+                    {llmConfig.configured ? (
+                      <Label color="green" icon={<CheckCircleIcon />}>
+                        Connected — {llmConfig.api_base_url} · updated {llmConfig.updated_at?.slice(0, 10)}
+                      </Label>
+                    ) : (
+                      <Label color="grey" icon={<TimesCircleIcon />}>Not connected (Using backend default config.yaml)</Label>
+                    )}
+                  </div>
+                )}
+
+                <datalist id="model-suggestions">
+                  {modelSuggestions.map(model => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+
                 <Form>
-                  <FormGroup label="API Endpoint" fieldId="api-endpoint" isRequired>
+                  <FormGroup label="API Base URL (Provider)" fieldId="api-endpoint" isRequired>
                     <TextInput
                       id="api-endpoint"
-                      value={apiEndpoint}
-                      onChange={(_event, value) => setApiEndpoint(value)}
-                      placeholder="http://localhost:8081"
+                      value={apiBaseUrl}
+                      onChange={(_event, value) => setApiBaseUrl(value)}
+                      placeholder="https://api.openai.com/v1"
                     />
-                    <p style={{ fontSize: '0.875rem', color: '#6A6E73', marginTop: '0.5rem' }}>
-                      Backend API server URL
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Example: <code>https://openrouter.ai/api/v1</code> or <code>http://localhost:11434/v1</code>
                     </p>
                   </FormGroup>
 
-                  <FormGroup label="API Key" fieldId="api-key">
+                  <FormGroup
+                    label="API Key"
+                    fieldId="api-key"
+                    isRequired={!llmConfig?.configured}
+                  >
                     <TextInput
                       id="api-key"
                       type="password"
                       value={apiKey}
                       onChange={(_event, value) => setApiKey(value)}
-                      placeholder="Enter your API key"
+                      placeholder={llmConfig?.configured ? '••••••••  (leave blank to keep existing)' : 'Enter your API key'}
+                      autoComplete="new-password"
                     />
-                    <p style={{ fontSize: '0.875rem', color: '#6A6E73', marginTop: '0.5rem' }}>
-                      Optional: For secured API endpoints
+                    {llmConfig?.configured && (
+                      <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                        Current token: {llmConfig.api_token_masked} — enter a new value to rotate
+                      </p>
+                    )}
+                  </FormGroup>
+
+                  <FormGroup label="Manager Model" fieldId="model-manager">
+                    <TextInput
+                      id="model-manager"
+                      value={modelManager}
+                      onChange={(_event, value) => setModelManager(value)}
+                      list="model-suggestions"
+                      placeholder="Select or type model..."
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Used by the Meta Agent for complex planning and orchestration.
                     </p>
                   </FormGroup>
 
-                  <FormGroup label="Default LLM Model" fieldId="default-model">
-                    <Select
-                      toggle={(toggleRef) => (
-                        <MenuToggle
-                          ref={toggleRef}
-                          onClick={() => setModelSelectOpen(!modelSelectOpen)}
-                          isExpanded={modelSelectOpen}
-                        >
-                          {selectedModel}
-                        </MenuToggle>
-                      )}
-                      onSelect={(_event, selection) => {
-                        setSelectedModel(selection as string);
-                        setModelSelectOpen(false);
-                      }}
-                      selected={selectedModel}
-                      isOpen={modelSelectOpen}
-                      onOpenChange={(isOpen) => setModelSelectOpen(isOpen)}
-                      aria-label="Select default model"
-                    >
-                      <SelectList>
-                        {models.map((model, index) => (
-                          <SelectOption key={index} value={model}>
-                            {model}
-                          </SelectOption>
-                        ))}
-                      </SelectList>
-                    </Select>
-                    <p style={{ fontSize: '0.875rem', color: '#6A6E73', marginTop: '0.5rem' }}>
-                      Language model used for code generation
+                  <FormGroup label="Worker Model" fieldId="model-worker">
+                    <TextInput
+                      id="model-worker"
+                      value={modelWorker}
+                      onChange={(_event, value) => setModelWorker(value)}
+                      list="model-suggestions"
+                      placeholder="Select or type model..."
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Used by the Dev Crew for writing implementations.
                     </p>
                   </FormGroup>
 
-                  <Divider style={{ margin: '1.5rem 0' }} />
+                  <FormGroup label="Reviewer Model" fieldId="model-reviewer">
+                    <TextInput
+                      id="model-reviewer"
+                      value={modelReviewer}
+                      onChange={(_event, value) => setModelReviewer(value)}
+                      list="model-suggestions"
+                      placeholder="Select or type model..."
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Used by Code Reviewers to analyze and critique code.
+                    </p>
+                  </FormGroup>
+                </Form>
 
+                {/* Status messages */}
+                {llmTestStatus && (
                   <Alert
-                    variant="info"
-                    title="Model Configuration"
+                    variant={llmTestStatus.ok ? 'success' : 'danger'}
+                    title={llmTestStatus.message}
                     isInline
                     style={{ marginTop: '1rem' }}
-                  >
-                    Different agents use specialized models. Meta Agent uses{' '}
-                    <strong>deepseek-r1-distill-qwen-14b</strong> for planning, while Dev Crew uses{' '}
-                    <strong>qwen3-14b</strong> for implementation.
-                  </Alert>
-                </Form>
+                  />
+                )}
+                {llmSaveStatus && (
+                  <Alert
+                    variant={llmSaveStatus.ok ? 'success' : 'danger'}
+                    title={llmSaveStatus.message}
+                    isInline
+                    style={{ marginTop: '1rem' }}
+                  />
+                )}
+
+                <ActionList style={{ marginTop: '1.5rem' }}>
+                  <ActionListItem>
+                    <Button
+                      variant="secondary"
+                      onClick={handleLlmTest}
+                      isDisabled={llmLoading || !apiBaseUrl || (!apiKey && !llmConfig?.configured)}
+                    >
+                      {llmLoading ? <Spinner size="sm" /> : 'Test Connection'}
+                    </Button>
+                  </ActionListItem>
+                  <ActionListItem>
+                    <Button
+                      variant="primary"
+                      onClick={handleLlmSave}
+                      isDisabled={llmLoading || !apiBaseUrl || (!apiKey && !llmConfig?.configured)}
+                    >
+                      {llmLoading ? <Spinner size="sm" /> : (llmConfig?.configured ? 'Update Configuration' : 'Save & Connect')}
+                    </Button>
+                  </ActionListItem>
+                  {llmConfig?.configured && (
+                    <ActionListItem>
+                      <Button variant="danger" onClick={handleLlmDisconnect} isDisabled={llmLoading}>
+                        Disconnect
+                      </Button>
+                    </ActionListItem>
+                  )}
+                </ActionList>
               </div>
             </Tab>
 
@@ -507,9 +669,6 @@ const Settings: React.FC = () => {
                     label="API Token"
                     fieldId="jira-token"
                     isRequired={!jiraConfig?.configured}
-                    helperText={jiraConfig?.configured
-                      ? `Current token: ${jiraConfig.api_token_masked} — enter a new value to rotate`
-                      : undefined}
                   >
                     <TextInput
                       id="jira-token"
@@ -519,6 +678,11 @@ const Settings: React.FC = () => {
                       placeholder={jiraConfig?.configured ? '••••••••  (leave blank to keep existing)' : 'Paste your API token'}
                       autoComplete="new-password"
                     />
+                    {jiraConfig?.configured && (
+                      <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                        Current token: {jiraConfig.api_token_masked} — enter a new value to rotate
+                      </p>
+                    )}
                     <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
                       Generate at: <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer">
                         id.atlassian.com → API tokens

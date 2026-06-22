@@ -374,7 +374,10 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
   /* ── Main render ───────────────────────────────────────────────────────── */
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', height: '100%',
+      display: 'flex', flexDirection: 'column',
+      height: isPendingReview ? '100%' : '100%',
+      minHeight: isPendingReview ? 0 : undefined,
+      flex: isPendingReview ? 1 : undefined,
       fontFamily: '"Red Hat Text", sans-serif',
     }}>
       {/* Header */}
@@ -408,17 +411,19 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
         </Button>
       </div>
 
-      {/* Overall progress */}
-      <Progress
-        value={job?.progress || 0}
-        title=""
-        size="sm"
-        style={{ marginBottom: '1.25rem' }}
-        variant={job?.status === 'failed' ? 'danger' : job?.status === 'completed' ? 'success' : undefined}
-      />
+      {/* Overall progress — hidden during plan review */}
+      {!isPendingReview && (
+        <Progress
+          value={job?.progress || 0}
+          title=""
+          size="sm"
+          style={{ marginBottom: '1.25rem' }}
+          variant={job?.status === 'failed' ? 'danger' : job?.status === 'completed' ? 'success' : undefined}
+        />
+      )}
 
-      {/* User vision */}
-      {vision && (
+      {/* User vision — hidden during plan review */}
+      {vision && !isPendingReview && (
         <div style={{
           background: '#F0F0F0', borderRadius: '8px', padding: '0.75rem 1rem',
           marginBottom: '1.25rem', borderLeft: '3px solid #0066CC',
@@ -438,15 +443,15 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
         </div>
       )}
 
-      {/* Phase timeline (hidden for import jobs — progress bar + log only) */}
-      {!isImport && renderTimeline()}
+      {/* Phase timeline — hidden during plan review */}
+      {!isImport && !isPendingReview && renderTimeline()}
 
-      {/* Activity log */}
-      {renderLog()}
+      {/* Activity log — hidden during plan review so the plan gets full space */}
+      {!isPendingReview && renderLog()}
 
       {/* Plan review gate */}
       {isPendingReview && (
-        <PlanReviewPanel jobId={jobId} onApproved={() => poll()} />
+        <PlanReviewPanel jobId={jobId} layout="page" onApproved={() => poll()} />
       )}
 
       {/* Files */}

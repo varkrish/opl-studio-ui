@@ -47,20 +47,19 @@ import { useNavigate } from 'react-router-dom';
 import { usePolling } from '../hooks/usePolling';
 import { getStats, getJobs, getHealth, getJobProgress, restartJob, cancelJob } from '../api/client';
 import JobSearchSelect from '../components/JobSearchSelect';
-import PlanReviewPanel from '../components/PlanReviewPanel';
 import type { Stats, JobSummary, HealthCheck, ProgressMessage } from '../types';
 
-const jobStatusColor = (status: string): 'green' | 'red' | 'blue' | 'orange' | 'yellow' | 'grey' => {
+const jobStatusColor = (status: string): 'green' | 'red' | 'blue' | 'orange' | 'gold' | 'grey' => {
   switch (status) {
-    case 'running': return 'blue';
     case 'completed': return 'green';
-    case 'partially_completed': return 'orange';
-    case 'failed':
-    case 'quota_exhausted':
-    case 'validation_failed': return 'red';
-    case 'cancelled': return 'orange';
-    case 'pending_review':
-    case 'pending_approval': return 'yellow';
+    case 'running': return 'blue';
+    case 'failed': return 'red';
+    case 'cancelled': return 'grey';
+    case 'quota_exhausted': return 'red';
+    case 'refinement_failed': return 'orange';
+    case 'validation_failed': return 'orange';
+    case 'pending_review': return 'gold';
+    case 'pending_approval': return 'gold';
     default: return 'grey';
   }
 };
@@ -338,16 +337,8 @@ const Dashboard: React.FC = () => {
 
         {/* Sidebar Info */}
         <GridItem lg={4} md={12}>
-          {/* Plan review gate — shown when selected job is pending review/approval */}
-          {selectedJobId && REVIEW_STATUSES.has(jobs.find((j) => j.id === selectedJobId)?.status ?? '') && (
-            <PlanReviewPanel
-              jobId={selectedJobId}
-              onApproved={() => loadData()}
-            />
-          )}
-
           {/* Current Phase */}
-          <Card style={{ marginBottom: '1.5rem', marginTop: selectedJobId && REVIEW_STATUSES.has(jobs.find((j) => j.id === selectedJobId)?.status ?? '') ? '1rem' : 0 }}>
+          <Card style={{ marginBottom: '1.5rem' }}>
             <CardHeader>
               <CardTitle>Current Phase</CardTitle>
             </CardHeader>
@@ -640,7 +631,7 @@ const Dashboard: React.FC = () => {
                           {REVIEW_STATUSES.has(job.status) && (
                             <DropdownItem
                               key="review-plan"
-                              onClick={() => setSelectedJobId(job.id)}
+                              onClick={() => navigate(`/review/${job.id}`)}
                             >
                               Review &amp; Approve Plan
                             </DropdownItem>

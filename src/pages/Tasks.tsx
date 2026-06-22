@@ -29,10 +29,11 @@ import {
   ExclamationCircleIcon,
 } from '@patternfly/react-icons';
 import { usePolling } from '../hooks/usePolling';
-import { getJobs, getJobTasks, createJob } from '../api/client';
+import { getJobs, getJobTasks, getGranularTasks, createJob } from '../api/client';
 import { groupTasksIntoColumns } from '../utils/taskGrouping';
-import type { JobSummary, KanbanColumn, Task } from '../types';
+import type { JobSummary, KanbanColumn, Task, GranularTask } from '../types';
 import JobSearchSelect from '../components/JobSearchSelect';
+import GranularTaskBoard from '../components/GranularTaskBoard';
 
 /* ── Phase visual config ── */
 const agentIcons: Record<string, React.ReactNode> = {
@@ -64,6 +65,7 @@ const Tasks: React.FC = () => {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [columns, setColumns] = useState<KanbanColumn[]>([]);
+  const [granularTasks, setGranularTasks] = useState<GranularTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [vision, setVision] = useState('');
@@ -81,10 +83,15 @@ const Tasks: React.FC = () => {
       }
 
       if (jobId) {
-        const { tasks } = await getJobTasks(jobId);
-        setColumns(groupTasksIntoColumns(tasks));
+        const [phaseRes, granularRes] = await Promise.all([
+          getJobTasks(jobId),
+          getGranularTasks(jobId).catch(() => ({ total_tasks: 0, tasks: [] as GranularTask[] })),
+        ]);
+        setColumns(groupTasksIntoColumns(phaseRes.tasks));
+        setGranularTasks(granularRes.tasks);
       } else {
         setColumns([]);
+        setGranularTasks([]);
       }
     } catch {
       // API not available
@@ -270,6 +277,11 @@ const Tasks: React.FC = () => {
             </p>
           </CardBody>
         </Card>
+      )}
+
+      {/* ── Granular task breakdown (per-file subtasks) ── */}
+      {selectedJobId && (
+        <GranularTaskBoard tasks={granularTasks} />
       )}
 
       {/* ── New Job Modal ── */}

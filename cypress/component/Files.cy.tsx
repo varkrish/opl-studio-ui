@@ -47,7 +47,7 @@ describe('Files Page', () => {
     cy.wait('@getFiles');
     cy.contains('README.md').click();
     cy.wait('@getFileContent');
-    cy.contains('# Hello World').should('be.visible');
+    cy.contains('Hello World').should('be.visible');
   });
 
   it('should show floating Refine button when a job is selected', () => {

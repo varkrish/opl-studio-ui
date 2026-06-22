@@ -38,7 +38,7 @@ describe('PlanReviewPanel', () => {
   });
 
   it('can switch to artifact tabs', () => {
-    cy.contains('📋 User Stories').click();
+    cy.contains('User Stories').click();
     cy.contains('As a user, I want to log in.').should('be.visible');
   });
 
