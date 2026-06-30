@@ -30,15 +30,26 @@ import {
   ActionList,
   ActionListItem,
 } from '@patternfly/react-core';
-import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon, LinkIcon, CheckCircleIcon, TimesCircleIcon } from '@patternfly/react-icons';
+import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon, LinkIcon, CheckCircleIcon, TimesCircleIcon, GithubIcon } from '@patternfly/react-icons';
 import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
-import { getJiraConfig, saveJiraConfig, deleteJiraConfig, testJiraConnection, getLlmConfig, saveLlmConfig, deleteLlmConfig, testLlmConnection, getLlmModels } from '../api/client';
-import type { JiraConfig, LlmConfig } from '../api/client';
+import {
+  getJiraConfig, saveJiraConfig, deleteJiraConfig, testJiraConnection,
+  getLlmConfig, saveLlmConfig, deleteLlmConfig, testLlmConnection, getLlmModels,
+  getGithubConfig, saveGithubConfig, deleteGithubConfig, testGithubConnection,
+} from '../api/client';
+import type { JiraConfig, LlmConfig, GitHubConfig } from '../api/client';
 
 const Settings: React.FC = () => {
   const [activeTabKey, setActiveTabKey] = useState<string | number>(0);
   const [saved, setSaved] = useState(false);
-  const { prefs, setPrefs } = useWorkflowPrefs();
+  const { prefs, setPrefs, saveError: workflowSaveError, loading: workflowLoading } = useWorkflowPrefs();
+
+  // GitHub configuration
+  const [githubConfig, setGithubConfig] = useState<GitHubConfig | null>(null);
+  const [githubToken, setGithubToken] = useState('');
+  const [githubLoading, setGithubLoading] = useState(false);
+  const [githubTestStatus, setGithubTestStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [githubSaveStatus, setGithubSaveStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   // General Settings
   const [workspacePath, setWorkspacePath] = useState('./workspace');
@@ -104,6 +115,10 @@ const Settings: React.FC = () => {
           setModelSuggestions(res.models);
         }
       })
+      .catch(() => {});
+
+    getGithubConfig()
+      .then(cfg => setGithubConfig(cfg))
       .catch(() => {});
   }, []);
 
@@ -217,6 +232,53 @@ const Settings: React.FC = () => {
       setJiraSaveStatus({ ok: false, message: 'Failed to remove credentials.' });
     } finally {
       setJiraLoading(false);
+    }
+  };
+
+  const handleGithubTest = async () => {
+    setGithubTestStatus(null);
+    setGithubLoading(true);
+    try {
+      const result = await testGithubConnection({ api_token: githubToken });
+      setGithubTestStatus(result.ok
+        ? { ok: true, message: `Connected as ${result.login || result.name || 'GitHub user'}` }
+        : { ok: false, message: result.error || 'Connection failed' }
+      );
+    } catch {
+      setGithubTestStatus({ ok: false, message: 'Request failed — check the console' });
+    } finally {
+      setGithubLoading(false);
+    }
+  };
+
+  const handleGithubSave = async () => {
+    setGithubSaveStatus(null);
+    setGithubLoading(true);
+    try {
+      await saveGithubConfig({ api_token: githubToken });
+      const cfg = await getGithubConfig();
+      setGithubConfig(cfg);
+      setGithubToken('');
+      setGithubSaveStatus({ ok: true, message: 'GitHub token saved.' });
+    } catch {
+      setGithubSaveStatus({ ok: false, message: 'Failed to save token.' });
+    } finally {
+      setGithubLoading(false);
+    }
+  };
+
+  const handleGithubDisconnect = async () => {
+    setGithubLoading(true);
+    try {
+      await deleteGithubConfig();
+      setGithubConfig({ configured: false });
+      setGithubToken('');
+      setGithubTestStatus(null);
+      setGithubSaveStatus(null);
+    } catch {
+      setGithubSaveStatus({ ok: false, message: 'Failed to remove token.' });
+    } finally {
+      setGithubLoading(false);
     }
   };
 
@@ -536,15 +598,98 @@ const Settings: React.FC = () => {
 
             {/* Workflow Automation Tab */}
             <Tab eventKey={3} title={<TabTitleText><AutomationIcon /> Workflow</TabTitleText>}>
-              <div style={{ padding: '1.5rem 0' }}>
+              <div style={{ padding: '1.5rem 0', maxWidth: '720px' }}>
                 <Title headingLevel="h3" size="lg" style={{ marginBottom: '0.25rem' }}>
                   Workflow Automation
                 </Title>
                 <p style={{ color: '#6A6E73', marginBottom: '1.5rem', fontSize: '0.875rem' }}>
-                  Control how much human oversight is applied during the AI planning process.
+                  Control solutioning, plan review, and auto-approve behaviour. Settings are saved to your account and apply to new jobs.
                 </p>
 
+                {workflowSaveError && (
+                  <Alert variant="warning" title={workflowSaveError} isInline style={{ marginBottom: '1rem' }} />
+                )}
+
                 <Form>
+                  <FormGroup
+                    label={
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        Solutioning loop
+                        {prefs.solutioningEnabled
+                          ? <Label isCompact color="green">Active</Label>
+                          : <Label isCompact color="grey">Off</Label>}
+                      </span>
+                    }
+                    fieldId="solutioning-enabled"
+                  >
+                    <Switch
+                      id="solutioning-enabled"
+                      label="Research + architect + critique before planning"
+                      labelOff="Skip solutioning (go straight to Product Owner)"
+                      isChecked={prefs.solutioningEnabled}
+                      isDisabled={workflowLoading}
+                      onChange={(_e, checked) => setPrefs({ solutioningEnabled: checked })}
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.5rem' }}>
+                      When enabled, the crew searches GitHub and skills for reference implementations, writes a solution spec, and pauses for your review before user stories.
+                    </p>
+                  </FormGroup>
+
+                  {prefs.solutioningEnabled && (
+                    <>
+                      <FormGroup label="Solutioning max passes" fieldId="solutioning-max-passes">
+                        <TextInput
+                          id="solutioning-max-passes"
+                          type="number"
+                          value={String(prefs.solutioningMaxPasses)}
+                          min={1}
+                          max={5}
+                          onChange={(_e, v) => setPrefs({ solutioningMaxPasses: Math.max(1, Math.min(5, parseInt(v, 10) || 3)) })}
+                          style={{ maxWidth: '120px' }}
+                        />
+                      </FormGroup>
+                      <FormGroup label="Max GitHub searches per job" fieldId="solutioning-max-github">
+                        <TextInput
+                          id="solutioning-max-github"
+                          type="number"
+                          value={String(prefs.solutioningMaxGithubSearches)}
+                          min={1}
+                          max={50}
+                          onChange={(_e, v) => setPrefs({ solutioningMaxGithubSearches: Math.max(1, Math.min(50, parseInt(v, 10) || 10)) })}
+                          style={{ maxWidth: '120px' }}
+                        />
+                      </FormGroup>
+                    </>
+                  )}
+
+                  <Divider style={{ margin: '1.5rem 0' }} />
+
+                  <FormGroup
+                    label={
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        Plan review gate
+                        {prefs.planReviewEnabled
+                          ? <Label isCompact color="green">Active</Label>
+                          : <Label isCompact color="grey">Off</Label>}
+                      </span>
+                    }
+                    fieldId="plan-review-enabled"
+                  >
+                    <Switch
+                      id="plan-review-enabled"
+                      label="Pause after planning for human review"
+                      labelOff="Skip plan review gate"
+                      isChecked={prefs.planReviewEnabled}
+                      isDisabled={workflowLoading}
+                      onChange={(_e, checked) => setPrefs({ planReviewEnabled: checked })}
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.5rem' }}>
+                      When enabled, jobs pause after Product Owner, Designer, and Tech Architect complete so you can review the plan before coding starts.
+                    </p>
+                  </FormGroup>
+
+                  <Divider style={{ margin: '1.5rem 0' }} />
+
                   <FormGroup
                     label={
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -561,6 +706,7 @@ const Settings: React.FC = () => {
                       label="Coding starts automatically after planning"
                       labelOff="Pause for plan review before coding"
                       isChecked={prefs.autoApprovePlan}
+                      isDisabled={workflowLoading}
                       onChange={(_e, checked) => setPrefs({ autoApprovePlan: checked })}
                     />
                     <div style={{
@@ -572,46 +718,22 @@ const Settings: React.FC = () => {
                       {prefs.autoApprovePlan ? (
                         <>
                           <strong style={{ color: '#3E8635' }}>Auto-approve is ON.</strong>
-                          {' '}Jobs go straight to coding once planning completes — no review
-                          pause. If a job enters review unexpectedly (e.g. from a JIRA trigger),
-                          a 5-second countdown will auto-approve it in the browser.
+                          {' '}New jobs skip the plan review pause and go straight to development once planning completes.
                         </>
                       ) : (
                         <>
                           <strong>Manual review is ON.</strong>
-                          {' '}After planning phases complete, every job pauses so you can
-                          review the generated plan, provide feedback, and approve before
-                          coding begins. This requires <code>plan_review.enabled: true</code>
-                          {' '}in your server config, or the per-job "Review plan" checkbox
-                          at job creation time.
+                          {' '}New jobs pause for plan review when the plan review gate is enabled above.
                         </>
                       )}
                     </div>
                   </FormGroup>
 
-                  <Divider style={{ margin: '1.5rem 0' }} />
-
-                  <Alert
-                    variant="info"
-                    title="How it works"
-                    isInline
-                  >
+                  <Alert variant="info" title="How it works" isInline style={{ marginTop: '1.5rem' }}>
                     <ul style={{ marginTop: '0.5rem', paddingLeft: '1.25rem', fontSize: '0.875rem' }}>
-                      <li>
-                        When <strong>Auto-approve is ON</strong>, new jobs are submitted with
-                        <code> auto_approve_plan: true</code>. The backend skips the review gate
-                        entirely — the job never enters <em>pending_review</em>.
-                      </li>
-                      <li style={{ marginTop: '0.35rem' }}>
-                        When <strong>Auto-approve is OFF</strong>, jobs pause for your review
-                        (requires the server-side <code>plan_review.enabled</code> flag). You can
-                        still override per job at creation time.
-                      </li>
-                      <li style={{ marginTop: '0.35rem' }}>
-                        For <strong>JIRA-triggered epics</strong>, use the
-                        <code> auto_approve_no_jira</code> server config for the equivalent
-                        server-side auto-approve behaviour.
-                      </li>
+                      <li>Settings sync to the server — no <code>config.yaml</code> edit required.</li>
+                      <li>Solutioning runs before Product Owner when enabled; plan review runs after Tech Architect when enabled.</li>
+                      <li>Per-job overrides at job creation still apply for auto-approve.</li>
                     </ul>
                   </Alert>
                 </Form>
@@ -739,8 +861,84 @@ const Settings: React.FC = () => {
               </div>
             </Tab>
 
+            {/* GitHub Integration Tab */}
+            <Tab eventKey={5} title={<TabTitleText><GithubIcon /> GitHub</TabTitleText>}>
+              <div style={{ padding: '1.5rem 0', maxWidth: '640px' }}>
+                <Title headingLevel="h3" size="lg" style={{ marginBottom: '0.5rem' }}>
+                  GitHub Integration
+                </Title>
+                <p style={{ color: '#6A6E73', marginBottom: '1.5rem' }}>
+                  Connect a GitHub personal access token for solutioning research and repo search. Your token is encrypted at rest.
+                </p>
+
+                {githubConfig !== null && (
+                  <div style={{ marginBottom: '1.25rem' }}>
+                    {githubConfig.configured ? (
+                      <Label color="green" icon={<CheckCircleIcon />}>
+                        Connected — {githubConfig.github_username || 'GitHub user'} · updated {githubConfig.updated_at?.slice(0, 10)}
+                      </Label>
+                    ) : (
+                      <Label color="grey" icon={<TimesCircleIcon />}>Not connected</Label>
+                    )}
+                  </div>
+                )}
+
+                <Form>
+                  <FormGroup
+                    label="Personal Access Token"
+                    fieldId="github-token"
+                    isRequired={!githubConfig?.configured}
+                  >
+                    <TextInput
+                      id="github-token"
+                      value={githubToken}
+                      onChange={(_e, v) => setGithubToken(v)}
+                      type="password"
+                      placeholder={githubConfig?.configured ? '••••••••  (leave blank to keep existing)' : 'ghp_…'}
+                      autoComplete="new-password"
+                    />
+                    {githubConfig?.configured && (
+                      <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                        Current token: {githubConfig.api_token_masked}
+                      </p>
+                    )}
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Create at: <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">github.com/settings/tokens</a> (repo read scope is enough for search).
+                    </p>
+                  </FormGroup>
+                </Form>
+
+                {githubTestStatus && (
+                  <Alert variant={githubTestStatus.ok ? 'success' : 'danger'} title={githubTestStatus.message} isInline style={{ marginTop: '1rem' }} />
+                )}
+                {githubSaveStatus && (
+                  <Alert variant={githubSaveStatus.ok ? 'success' : 'danger'} title={githubSaveStatus.message} isInline style={{ marginTop: '1rem' }} />
+                )}
+
+                <ActionList style={{ marginTop: '1.5rem' }}>
+                  <ActionListItem>
+                    <Button variant="secondary" onClick={handleGithubTest} isDisabled={githubLoading || !githubToken}>
+                      {githubLoading ? <Spinner size="sm" /> : 'Test Connection'}
+                    </Button>
+                  </ActionListItem>
+                  <ActionListItem>
+                    <Button variant="primary" onClick={handleGithubSave} isDisabled={githubLoading || !githubToken}>
+                      {githubLoading ? <Spinner size="sm" /> : (githubConfig?.configured ? 'Update Token' : 'Save & Connect')}
+                    </Button>
+                  </ActionListItem>
+                  {githubConfig?.configured && (
+                    <ActionListItem>
+                      <Button variant="danger" onClick={handleGithubDisconnect} isDisabled={githubLoading}>
+                        Disconnect
+                      </Button>
+                    </ActionListItem>
+                  )}
+                </ActionList>
+              </div>
+            </Tab>
+
             {/* About Tab */}
-            <Tab eventKey={5} title={<TabTitleText><UserIcon /> About</TabTitleText>}>
+            <Tab eventKey={6} title={<TabTitleText><UserIcon /> About</TabTitleText>}>
               <div style={{ padding: '1.5rem 0' }}>
                 <Title headingLevel="h3" size="lg" style={{ marginBottom: '1rem' }}>
                   About AI Crew Studio

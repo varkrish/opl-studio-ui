@@ -744,3 +744,72 @@ export async function testLlmConnection(config: LlmSaveRequest): Promise<{ ok: b
   const { data } = await api.post<{ ok: boolean; message?: string; error?: string }>('/api/llm/test-connection', config);
   return data;
 }
+
+// ── GitHub configuration ─────────────────────────────────────────────────────
+
+export interface GitHubConfig {
+  configured: boolean;
+  github_username?: string;
+  api_token_masked?: string;
+  updated_at?: string;
+}
+
+export interface GitHubConfigInput {
+  api_token: string;
+}
+
+export interface GitHubTestResult {
+  ok: boolean;
+  login?: string;
+  name?: string;
+  error?: string;
+}
+
+export async function getGithubConfig(): Promise<GitHubConfig> {
+  const { data } = await api.get<GitHubConfig>('/api/github/config');
+  return data;
+}
+
+export async function saveGithubConfig(cfg: GitHubConfigInput): Promise<{ saved: boolean; configured?: boolean; github_username?: string }> {
+  const { data } = await api.post<{ saved: boolean; configured?: boolean; github_username?: string }>('/api/github/config', cfg);
+  return data;
+}
+
+export async function deleteGithubConfig(): Promise<{ deleted: boolean }> {
+  const { data } = await api.delete<{ deleted: boolean }>('/api/github/config');
+  return data;
+}
+
+export async function testGithubConnection(cfg: GitHubConfigInput): Promise<GitHubTestResult> {
+  const { data } = await api.post<GitHubTestResult>('/api/github/test-connection', cfg);
+  return data;
+}
+
+// ── Workflow configuration ───────────────────────────────────────────────────
+
+export interface WorkflowConfig {
+  configured: boolean;
+  plan_review_enabled: boolean;
+  solutioning_enabled: boolean;
+  solutioning_max_passes: number;
+  solutioning_max_github_searches: number;
+  auto_approve_plan: boolean;
+  updated_at?: string | null;
+}
+
+export type WorkflowConfigInput = Omit<WorkflowConfig, 'configured' | 'updated_at'>;
+
+export async function getWorkflowConfig(): Promise<WorkflowConfig> {
+  const { data } = await api.get<WorkflowConfig>('/api/workflow/config');
+  return data;
+}
+
+export async function saveWorkflowConfig(cfg: WorkflowConfigInput): Promise<{ saved: boolean } & WorkflowConfigInput> {
+  const { data } = await api.post<{ saved: boolean } & WorkflowConfigInput>('/api/workflow/config', cfg);
+  return data;
+}
+
+export async function deleteWorkflowConfig(): Promise<{ deleted: boolean }> {
+  const { data } = await api.delete<{ deleted: boolean }>('/api/workflow/config');
+  return data;
+}

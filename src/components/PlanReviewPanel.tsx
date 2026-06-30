@@ -35,6 +35,7 @@ interface Props {
 }
 
 const ARTIFACT_ORDER = [
+  'solution_spec.md',
   'user_stories.md',
   'design_spec.md',
   'tech_stack.md',
@@ -43,6 +44,7 @@ const ARTIFACT_ORDER = [
 ] as const;
 
 const ARTIFACT_TAB_LABELS: Record<string, string> = {
+  'solution_spec.md': 'Solution Spec',
   'user_stories.md': 'User Stories',
   'design_spec.md': 'Design Spec',
   'tech_stack.md': 'Tech Stack',

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import Landing from './pages/Landing';
@@ -12,8 +12,12 @@ import Refactor from './pages/Refactor';
 import Skills from './pages/Skills';
 import PlanReview from './pages/PlanReview';
 import { OAuthProvider } from './auth/OAuthProvider';
+import { refreshWorkflowPrefsFromApi } from './hooks/useWorkflowPrefs';
 
 const App: React.FC = () => {
+  useEffect(() => {
+    refreshWorkflowPrefsFromApi().catch(() => {});
+  }, []);
   return (
     <OAuthProvider>
       <BrowserRouter>
