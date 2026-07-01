@@ -60,6 +60,7 @@ const jobStatusColor = (status: string): 'green' | 'red' | 'blue' | 'orange' | '
     case 'validation_failed': return 'orange';
     case 'pending_review': return 'gold';
     case 'pending_approval': return 'gold';
+    case 'pending_solution_review': return 'gold';
     default: return 'grey';
   }
 };
@@ -71,8 +72,8 @@ const PER_PAGE_OPTIONS = [
   { value: 50, title: '50' },
 ];
 
-const STATUS_OPTIONS = ['running', 'pending_review', 'pending_approval', 'completed', 'partially_completed', 'failed', 'queued', 'cancelled', 'quota_exhausted'];
-const REVIEW_STATUSES = new Set(['pending_review', 'pending_approval']);
+const STATUS_OPTIONS = ['running', 'pending_review', 'pending_approval', 'pending_solution_review', 'completed', 'partially_completed', 'failed', 'queued', 'cancelled', 'quota_exhausted'];
+const REVIEW_STATUSES = new Set(['pending_review', 'pending_approval', 'pending_solution_review']);
 type SortCol = 'vision' | 'status' | 'current_phase' | 'progress' | 'created_at';
 
 const Dashboard: React.FC = () => {
@@ -517,7 +518,7 @@ const Dashboard: React.FC = () => {
                   >
                     <Tooltip content={<div style={{ maxWidth: '400px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{job.vision}</div>} maxWidth="420px">
                       <td
-                        onClick={() => setSelectedJobId(job.id)}
+                        onClick={() => navigate('/jobs/' + job.id)}
                         style={{
                           padding: '0.625rem 1rem',
                           overflow: 'hidden',
@@ -628,12 +629,12 @@ const Dashboard: React.FC = () => {
                               job.vision.startsWith('[Refactor') ? 'View refactor' :
                                 'View files'}
                           </DropdownItem>
-                          {REVIEW_STATUSES.has(job.status) && (
+                          {!job.vision.startsWith('[MTA') && !job.vision.startsWith('[Refactor') && (
                             <DropdownItem
-                              key="review-plan"
+                              key="view-plan"
                               onClick={() => navigate(`/review/${job.id}`)}
                             >
-                              Review &amp; Approve Plan
+                              {REVIEW_STATUSES.has(job.status) ? 'Review & Approve Plan' : 'View Plan'}
                             </DropdownItem>
                           )}
                           {['running', 'queued'].includes(job.status) && (

@@ -34,8 +34,9 @@ const PHASE_META: Record<string, { label: string; icon: string; color: string }>
   error:            { label: 'Error',               icon: '❌', color: '#C9190B' },
   refining:         { label: 'Refining',             icon: '✏️', color: '#7B68EE' },
   import_analyzing: { label: 'Import analysis',      icon: '🔍', color: '#3E8635' },
-  pending_review:   { label: 'Awaiting Review',       icon: '🔍', color: '#F0AB00' },
-  pending_approval: { label: 'Awaiting Approval',     icon: '✋', color: '#F0AB00' },
+  pending_review:           { label: 'Awaiting Review',           icon: '🔍', color: '#F0AB00' },
+  pending_approval:         { label: 'Awaiting Approval',         icon: '✋', color: '#F0AB00' },
+  pending_solution_review:  { label: 'Awaiting Solution Review',  icon: '🔬', color: '#F0AB00' },
 };
 
 const PHASE_ORDER = [
@@ -67,7 +68,7 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
   const prevMsgCount = useRef(0);
 
   const isTerminal = job?.status === 'completed' || job?.status === 'failed' || job?.status === 'cancelled';
-  const isPendingReview = job?.status === 'pending_review' || job?.status === 'pending_approval';
+  const isPendingReview = job?.status === 'pending_review' || job?.status === 'pending_approval' || job?.status === 'pending_solution_review';
   const isMta = job?.vision?.startsWith('[MTA') ?? false;
   const isImport = job?.vision?.startsWith('[Import]') ?? false;
 
@@ -399,7 +400,9 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
                 ? (isImport ? 'Import Complete' : 'Build Complete')
                 : 'Build Stopped')
               : isPendingReview
-                ? 'Plan ready — awaiting your review'
+                ? (job?.status === 'pending_solution_review'
+                  ? 'Solution ready — awaiting your review'
+                  : 'Plan ready — awaiting your review')
                 : (isImport ? 'Analyzing import...' : 'Building...')}
           </span>
         </div>

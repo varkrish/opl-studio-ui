@@ -12,7 +12,9 @@ export type JobStatus =
   /** Job paused for human review/approval before coding begins */
   | 'pending_review'
   /** Epic job paused for story approval after AI decomposition */
-  | 'pending_approval';
+  | 'pending_approval'
+  /** Job paused for solution review before coding begins (solutioning loop) */
+  | 'pending_solution_review';
 
 /** A single JIRA-style story surfaced in the plan review panel */
 export interface JiraStory {
@@ -26,6 +28,7 @@ export interface JiraStory {
 
 /** Planning artifacts returned by GET /api/jobs/{id}/plan */
 export interface PlanArtifacts {
+  'solution_spec.md'?: string;
   'user_stories.md'?: string;
   'design_spec.md'?: string;
   'tech_stack.md'?: string;
@@ -151,6 +154,8 @@ export interface Stats {
   queued: number;
   total_cost?: number;
   total_tokens?: number;
+  total_tool_calls?: number;
+  top_tools?: { name: string; count: number; avg_ms: number }[];
 }
 
 /** Workspace file entry */

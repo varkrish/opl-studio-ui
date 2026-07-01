@@ -868,7 +868,9 @@ const Settings: React.FC = () => {
                   GitHub Integration
                 </Title>
                 <p style={{ color: '#6A6E73', marginBottom: '1.5rem' }}>
-                  Connect a GitHub personal access token for solutioning research and repo search. Your token is encrypted at rest.
+                  Connect a GitHub personal access token. Used for: cloning and pulling private repos,
+                  solutioning research, pushing generated code, opening pull requests, and auto-creating
+                  repos for new projects. Your token is encrypted at rest.
                 </p>
 
                 {githubConfig !== null && (
@@ -903,7 +905,8 @@ const Settings: React.FC = () => {
                       </p>
                     )}
                     <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
-                      Create at: <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">github.com/settings/tokens</a> (repo read scope is enough for search).
+                      Create at: <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">github.com/settings/tokens</a> — needs the <code>repo</code> scope
+                      (read/write) to clone private repos, push commits, open PRs, and create new repositories on your behalf.
                     </p>
                   </FormGroup>
                 </Form>

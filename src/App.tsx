@@ -11,6 +11,7 @@ import Migration from './pages/Migration';
 import Refactor from './pages/Refactor';
 import Skills from './pages/Skills';
 import PlanReview from './pages/PlanReview';
+import JobDetail from './pages/JobDetail';
 import { OAuthProvider } from './auth/OAuthProvider';
 import { refreshWorkflowPrefsFromApi } from './hooks/useWorkflowPrefs';
 
@@ -36,6 +37,7 @@ const App: React.FC = () => {
             <Route path="/refactor/:jobId" element={<Refactor />} />
             <Route path="/review" element={<PlanReview />} />
             <Route path="/review/:jobId" element={<PlanReview />} />
+            <Route path="/jobs/:jobId" element={<JobDetail />} />
           </Route>
         </Routes>
       </BrowserRouter>

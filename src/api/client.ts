@@ -72,6 +72,7 @@ export async function createJob(
   teamId?: string,
   autoApprovePlan?: boolean,
   jiraIssue?: JiraIssue,
+  targetRepoName?: string,
 ): Promise<{ job_id: string; status: string; documents: number; github_repos: number }> {
   const hasFiles = documents && documents.length > 0;
   const hasGithub = githubUrls && githubUrls.length > 0;
@@ -82,6 +83,7 @@ export async function createJob(
     if (backend) formData.append('backend', backend);
     if (teamId) formData.append('team_id', teamId);
     if (autoApprovePlan) formData.append('auto_approve_plan', 'true');
+    if (targetRepoName) formData.append('target_repo_name', targetRepoName);
     if (jiraIssue) {
       formData.append('jira_issue_key', jiraIssue.key);
       formData.append('jira_issue_url', jiraIssue.url);
@@ -111,6 +113,7 @@ export async function createJob(
       backend,
       team_id: teamId,
       auto_approve_plan: autoApprovePlan ?? false,
+      ...(targetRepoName && { target_repo_name: targetRepoName }),
       ...(jiraIssue && {
         jira_issue_key: jiraIssue.key,
         jira_issue_url: jiraIssue.url,
@@ -351,6 +354,26 @@ export async function getJobBudget(jobId: string): Promise<Record<string, unknow
   return data;
 }
 
+// ── Job Tool Stats ───────────────────────────────────────────────────────────
+export interface ToolStat {
+  name: string;
+  count: number;
+  avg_ms: number;
+}
+export interface AgentStat {
+  agent_name: string;
+  count: number;
+}
+export interface JobToolStats {
+  total: number;
+  by_tool: ToolStat[];
+  by_agent: AgentStat[];
+}
+export async function getJobToolStats(jobId: string): Promise<JobToolStats> {
+  const { data } = await api.get<JobToolStats>(`/api/jobs/${jobId}/tool-stats`);
+  return data;
+}
+
 // ── Refinement ──────────────────────────────────────────────────────────────
 export type RefineScope = 'impact' | 'file' | 'project';
 
@@ -397,6 +420,19 @@ export async function refinePlan(
     `/api/jobs/${jobId}/refine-plan`,
     { feedback }
   );
+  return data;
+}
+
+export async function getJobSolution(jobId: string): Promise<{
+  solution_spec: string | null;
+  passes: number;
+  status: string;
+}> {
+  const { data } = await api.get<{
+    solution_spec: string | null;
+    passes: number;
+    status: string;
+  }>(`/api/jobs/${jobId}/solution`);
   return data;
 }
 

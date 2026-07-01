@@ -38,6 +38,7 @@ import {
   getMigrationStatus,
   searchJiraIssues,
   getJiraConfig,
+  getGithubConfig,
 } from '../api/client';
 import type { BackendOption } from '../types';
 import type { JiraIssue } from '../api/client';
@@ -138,6 +139,10 @@ const Landing: React.FC = () => {
   const jiraSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jiraInputRef = useRef<HTMLInputElement>(null);
 
+  // GitHub connection status + optional target repo name for auto-push on build completion
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [targetRepoName, setTargetRepoName] = useState('');
+
   // Build state — when set, we switch to split view
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [submittedVision, setSubmittedVision] = useState('');
@@ -158,6 +163,14 @@ const Landing: React.FC = () => {
     getJiraConfig()
       .then((cfg) => setJiraConnected(cfg.configured))
       .catch(() => setJiraConnected(false));
+  }, [authLoading]);
+
+  // Check whether the user has GitHub configured — controls "push to GitHub" field on Build
+  useEffect(() => {
+    if (authLoading) return;
+    getGithubConfig()
+      .then((cfg) => setGithubConnected(cfg.configured))
+      .catch(() => setGithubConnected(false));
   }, [authLoading]);
 
   /* ── Jira issue search ───────────────────────────────────────────────────── */
@@ -343,6 +356,7 @@ const Landing: React.FC = () => {
         selectedTeam,
         effectiveAutoApprove,
         selectedJiraIssue ?? undefined,
+        githubConnected ? (targetRepoName.trim() || undefined) : undefined,
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -1203,6 +1217,32 @@ const Landing: React.FC = () => {
                       </Button>
                     )}
                   </div>
+
+                  {/* Optional: push generated project to a new GitHub repo on completion */}
+                  {githubConnected && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <label
+                        htmlFor="target-repo-name"
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '0.35rem',
+                          fontSize: '0.8rem', fontWeight: 600, color: '#151515', marginBottom: '0.3rem',
+                        }}
+                      >
+                        <GithubIcon style={{ fontSize: '0.8rem' }} /> Push to GitHub repo (optional)
+                      </label>
+                      <TextInput
+                        id="target-repo-name"
+                        value={targetRepoName}
+                        onChange={(_e, v) => setTargetRepoName(v)}
+                        placeholder="auto — crew-ai-your-project-name"
+                        style={{ fontSize: '0.8125rem' }}
+                      />
+                      <p style={{ fontSize: '0.75rem', color: '#6A6E73', marginTop: '0.3rem' }}>
+                        A new private repo will be created under your GitHub account and the generated
+                        code pushed to it once the build completes.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Per-job plan review toggle */}

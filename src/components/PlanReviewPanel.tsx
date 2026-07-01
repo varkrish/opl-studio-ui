@@ -9,7 +9,6 @@ import {
   Tab,
   Tabs,
   TabTitleText,
-  TabContent,
   Progress,
 } from '@patternfly/react-core';
 import {
@@ -18,13 +17,20 @@ import {
   OutlinedCommentsIcon,
   BanIcon,
 } from '@patternfly/react-icons';
-import { approveJob, getJobPlan, refinePlan, getGranularTasks } from '../api/client';
+import { approveJob, getJob, getJobPlan, getJobSolution, refinePlan, getGranularTasks } from '../api/client';
 import { getWorkflowPrefs } from '../hooks/useWorkflowPrefs';
 import MarkdownPreview from './MarkdownPreview';
 import GranularTaskBoard from './GranularTaskBoard';
 import type { PlanReviewData, JiraStory, GranularTask } from '../types';
 
 const AUTO_APPROVE_DELAY_SEC = 5;
+
+/** Job statuses where the plan/solution gate is still open for feedback + approval. */
+const REVIEWABLE_STATUSES = new Set([
+  'pending_review',
+  'pending_approval',
+  'pending_solution_review',
+]);
 
 interface Props {
   jobId: string;
@@ -55,6 +61,7 @@ const ARTIFACT_TAB_LABELS: Record<string, string> = {
 const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedded' }) => {
   const isPage = layout === 'page';
   const [plan, setPlan] = useState<PlanReviewData | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('user_stories.md');
   const [feedback, setFeedback] = useState('');
@@ -73,6 +80,26 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
   const fetchPlan = useCallback(async () => {
     try {
       const data = await getJobPlan(jobId);
+
+      // Merge solution spec if the solutioning loop produced one
+      try {
+        const sol = await getJobSolution(jobId);
+        if (sol.solution_spec) {
+          data.artifacts = { ...data.artifacts, 'solution_spec.md': sol.solution_spec };
+        }
+      } catch {
+        // Solution endpoint may 404 if solutioning was not enabled — ignore
+      }
+
+      // Determine whether this job is still awaiting review, so jobs opened
+      // via "View Plan" (any status) render read-only instead of stale actions.
+      try {
+        const job = await getJob(jobId);
+        setJobStatus(job.status);
+      } catch {
+        setJobStatus(null);
+      }
+
       setPlan(data);
       if (data.jira_stories.length > 0) {
         setActiveTab('stories');
@@ -108,8 +135,10 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
       .catch(() => {});
   }, [jobId]);
 
+  const isReviewable = jobStatus === null || REVIEWABLE_STATUSES.has(jobStatus);
+
   useEffect(() => {
-    if (!autoApproveEnabled || autoApproveCancelled || loading || !plan) return;
+    if (!autoApproveEnabled || autoApproveCancelled || loading || !plan || !isReviewable) return;
     setCountdown(AUTO_APPROVE_DELAY_SEC);
     countdownRef.current = setInterval(() => {
       setCountdown((c) => {
@@ -124,7 +153,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
-  }, [autoApproveEnabled, autoApproveCancelled, loading, plan]);
+  }, [autoApproveEnabled, autoApproveCancelled, loading, plan, isReviewable]);
 
   useEffect(() => {
     if (countdown === 0 && !autoApproveCancelled && !approving) {
@@ -282,11 +311,12 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
               color: '#151515',
               marginBottom: '0.25rem',
             }}>
-              Review &amp; Approve Plan
+              {isReviewable ? 'Review & Approve Plan' : 'Plan'}
             </div>
             <div style={{ fontSize: '0.875rem', color: '#6A6E73' }}>
-              The planning phase is complete. Review the generated plan below, provide feedback to
-              regenerate, or approve to start coding.
+              {isReviewable
+                ? 'The planning phase is complete. Review the generated plan below, provide feedback to regenerate, or approve to start coding.'
+                : 'This job has already moved past the planning phase. Read-only view of the plan that was generated.'}
             </div>
             {plan?.epic_judge_reasoning && (
               <div style={{
@@ -301,7 +331,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
         </div>
       </div>
 
-      {autoApproveEnabled && !autoApproveCancelled && countdown !== null && (
+      {isReviewable && autoApproveEnabled && !autoApproveCancelled && countdown !== null && (
         <div style={{
           background: '#F0FFF0',
           border: '1px solid #84CC84',
@@ -376,10 +406,9 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
               />,
             ]}
           </Tabs>
-          <TabContent
-            eventKey={activeTab}
+          <div
+            role="tabpanel"
             id={`plan-tab-${activeTab}`}
-            aria-labelledby={`plan-tab-${activeTab}`}
             style={{
               paddingTop: '1rem',
               flex: isPage ? 1 : undefined,
@@ -389,7 +418,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
             }}
           >
             {renderActiveTabContent()}
-          </TabContent>
+          </div>
         </div>
       )}
 
@@ -423,62 +452,66 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
           </div>
         )}
 
-        <div style={{ marginBottom: '1rem' }}>
-          <div style={{
-            fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
-            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
-          }}>
-            Provide feedback to regenerate
-          </div>
-          <TextArea
-            value={feedback}
-            onChange={(_e, val) => setFeedback(val)}
-            placeholder="e.g. Split the auth story into login + registration. Add a caching layer. Use PostgreSQL instead of SQLite."
-            rows={3}
-            style={{ fontFamily: '"Red Hat Text", sans-serif', fontSize: '0.875rem' }}
-            aria-label="Plan feedback"
-          />
-        </div>
+        {isReviewable && (
+          <>
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{
+                fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
+                textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
+              }}>
+                Provide feedback to regenerate
+              </div>
+              <TextArea
+                value={feedback}
+                onChange={(_e, val) => setFeedback(val)}
+                placeholder="e.g. Split the auth story into login + registration. Add a caching layer. Use PostgreSQL instead of SQLite."
+                rows={3}
+                style={{ fontFamily: '"Red Hat Text", sans-serif', fontSize: '0.875rem' }}
+                aria-label="Plan feedback"
+              />
+            </div>
 
-        {error && (
-          <div style={{
-            color: '#C9190B', fontSize: '0.8125rem', marginBottom: '0.75rem',
-            background: '#FFF5F5', padding: '0.5rem 0.75rem', borderRadius: '6px',
-            border: '1px solid #FECDD3',
-          }}>
-            {error}
-          </div>
+            {error && (
+              <div style={{
+                color: '#C9190B', fontSize: '0.8125rem', marginBottom: '0.75rem',
+                background: '#FFF5F5', padding: '0.5rem 0.75rem', borderRadius: '6px',
+                border: '1px solid #FECDD3',
+              }}>
+                {error}
+              </div>
+            )}
+
+            {refineSuccess && !refining && (
+              <div style={{
+                color: '#3E8635', fontSize: '0.8125rem', marginBottom: '0.75rem',
+                background: '#F3FAF3', padding: '0.5rem 0.75rem', borderRadius: '6px',
+                border: '1px solid #C8E6C9',
+              }}>
+                Plan regenerated. Review the updated plan above.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                onClick={handleApprove}
+                isDisabled={approving || refining}
+                icon={approving ? <Spinner size="sm" /> : <CheckCircleIcon />}
+                style={{ backgroundColor: '#3E8635', border: 'none' }}
+              >
+                {approving ? 'Approving…' : 'Approve & Start Coding'}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleRefine}
+                isDisabled={refining || approving || !feedback.trim()}
+                icon={refining ? <Spinner size="sm" /> : <SyncAltIcon />}
+              >
+                {refining ? 'Regenerating…' : 'Regenerate Plan'}
+              </Button>
+            </div>
+          </>
         )}
-
-        {refineSuccess && !refining && (
-          <div style={{
-            color: '#3E8635', fontSize: '0.8125rem', marginBottom: '0.75rem',
-            background: '#F3FAF3', padding: '0.5rem 0.75rem', borderRadius: '6px',
-            border: '1px solid #C8E6C9',
-          }}>
-            Plan regenerated. Review the updated plan above.
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <Button
-            variant="primary"
-            onClick={handleApprove}
-            isDisabled={approving || refining}
-            icon={approving ? <Spinner size="sm" /> : <CheckCircleIcon />}
-            style={{ backgroundColor: '#3E8635', border: 'none' }}
-          >
-            {approving ? 'Approving…' : 'Approve & Start Coding'}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={handleRefine}
-            isDisabled={refining || approving || !feedback.trim()}
-            icon={refining ? <Spinner size="sm" /> : <SyncAltIcon />}
-          >
-            {refining ? 'Regenerating…' : 'Regenerate Plan'}
-          </Button>
-        </div>
       </div>
     </div>
   );
