@@ -424,15 +424,28 @@ export async function refinePlan(
 }
 
 export async function getJobSolution(jobId: string): Promise<{
-  solution_spec: string | null;
-  passes: number;
-  status: string;
+  artifacts: Record<string, string>;
+  solution_candidates: unknown[];
+  critique_history: unknown[];
+  solution_feedback_history: { feedback: string }[];
 }> {
   const { data } = await api.get<{
-    solution_spec: string | null;
-    passes: number;
-    status: string;
+    artifacts: Record<string, string>;
+    solution_candidates: unknown[];
+    critique_history: unknown[];
+    solution_feedback_history: { feedback: string }[];
   }>(`/api/jobs/${jobId}/solution`);
+  return data;
+}
+
+export async function refineSolution(
+  jobId: string,
+  feedback: string
+): Promise<{ status: string; message?: string }> {
+  const { data } = await api.post<{ status: string; message?: string }>(
+    `/api/jobs/${jobId}/refine-solution`,
+    { feedback }
+  );
   return data;
 }
 

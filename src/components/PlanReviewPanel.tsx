@@ -17,7 +17,7 @@ import {
   OutlinedCommentsIcon,
   BanIcon,
 } from '@patternfly/react-icons';
-import { approveJob, getJob, getJobPlan, getJobSolution, refinePlan, getGranularTasks } from '../api/client';
+import { approveJob, getJob, getJobPlan, getJobSolution, refinePlan, refineSolution, getGranularTasks } from '../api/client';
 import { getWorkflowPrefs } from '../hooks/useWorkflowPrefs';
 import MarkdownPreview from './MarkdownPreview';
 import GranularTaskBoard from './GranularTaskBoard';
@@ -71,6 +71,8 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
   const [refineSuccess, setRefineSuccess] = useState(false);
   const [granularTasks, setGranularTasks] = useState<GranularTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [isSolutionReview, setIsSolutionReview] = useState(false);
+  const [solutionFeedbackHistory, setSolutionFeedbackHistory] = useState<{ feedback: string }[]>([]);
 
   const autoApproveEnabled = getWorkflowPrefs().autoApprovePlan;
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -84,8 +86,12 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
       // Merge solution spec if the solutioning loop produced one
       try {
         const sol = await getJobSolution(jobId);
-        if (sol.solution_spec) {
-          data.artifacts = { ...data.artifacts, 'solution_spec.md': sol.solution_spec };
+        const spec = sol.artifacts?.['solution_spec.md'];
+        if (spec) {
+          data.artifacts = { ...data.artifacts, 'solution_spec.md': spec };
+        }
+        if (sol.solution_feedback_history?.length) {
+          setSolutionFeedbackHistory(sol.solution_feedback_history);
         }
       } catch {
         // Solution endpoint may 404 if solutioning was not enabled — ignore
@@ -96,6 +102,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
       try {
         const job = await getJob(jobId);
         setJobStatus(job.status);
+        setIsSolutionReview(job.status === 'pending_solution_review');
       } catch {
         setJobStatus(null);
       }
@@ -168,12 +175,16 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
     setError(null);
     setRefineSuccess(false);
     try {
-      await refinePlan(jobId, feedback.trim());
+      if (isSolutionReview) {
+        await refineSolution(jobId, feedback.trim());
+      } else {
+        await refinePlan(jobId, feedback.trim());
+      }
       setFeedback('');
       setRefineSuccess(true);
       await fetchPlan();
     } catch {
-      setError('Failed to regenerate plan. Please try again.');
+      setError(`Failed to regenerate ${isSolutionReview ? 'solution' : 'plan'}. Please try again.`);
     } finally {
       setRefining(false);
     }
@@ -311,12 +322,18 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
               color: '#151515',
               marginBottom: '0.25rem',
             }}>
-              {isReviewable ? 'Review & Approve Plan' : 'Plan'}
+              {isReviewable
+                ? (isSolutionReview ? 'Review & Approve Solution' : 'Review & Approve Plan')
+                : (isSolutionReview ? 'Solution' : 'Plan')}
             </div>
             <div style={{ fontSize: '0.875rem', color: '#6A6E73' }}>
               {isReviewable
-                ? 'The planning phase is complete. Review the generated plan below, provide feedback to regenerate, or approve to start coding.'
-                : 'This job has already moved past the planning phase. Read-only view of the plan that was generated.'}
+                ? (isSolutionReview
+                    ? 'The solutioning phase is complete. Review the generated solution spec below, provide feedback to refine, or approve to continue building.'
+                    : 'The planning phase is complete. Review the generated plan below, provide feedback to regenerate, or approve to start coding.')
+                : (isSolutionReview
+                    ? 'Read-only view of the solution spec that was approved.'
+                    : 'This job has already moved past the planning phase. Read-only view of the plan that was generated.')}
             </div>
             {plan?.epic_judge_reasoning && (
               <div style={{
@@ -432,25 +449,30 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
       )}
 
       <div style={{ flexShrink: 0 }}>
-        {(plan?.plan_feedback_history ?? []).length > 0 && (
-          <div style={{ marginBottom: '1rem' }}>
-            <div style={{
-              fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
-              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
-            }}>
-              <OutlinedCommentsIcon /> Feedback history ({plan!.plan_feedback_history.length} rounds)
-            </div>
-            {plan!.plan_feedback_history.map((round, i) => (
-              <div key={i} style={{
-                background: '#F0F8FF', border: '1px solid #BFDBFE', borderRadius: '6px',
-                padding: '0.5rem 0.75rem', marginBottom: '0.35rem',
-                fontSize: '0.8125rem', color: '#1E40AF',
+        {(() => {
+          const history = isSolutionReview
+            ? solutionFeedbackHistory
+            : (plan?.plan_feedback_history ?? []);
+          return history.length > 0 ? (
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{
+                fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
+                textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
               }}>
-                <strong>Round {i + 1}:</strong> {round.feedback}
+                <OutlinedCommentsIcon /> Feedback history ({history.length} rounds)
               </div>
-            ))}
-          </div>
-        )}
+              {history.map((round, i) => (
+                <div key={i} style={{
+                  background: '#F0F8FF', border: '1px solid #BFDBFE', borderRadius: '6px',
+                  padding: '0.5rem 0.75rem', marginBottom: '0.35rem',
+                  fontSize: '0.8125rem', color: '#1E40AF',
+                }}>
+                  <strong>Round {i + 1}:</strong> {round.feedback}
+                </div>
+              ))}
+            </div>
+          ) : null;
+        })()}
 
         {isReviewable && (
           <>
@@ -459,15 +481,17 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
                 fontSize: '0.6875rem', fontWeight: 600, color: '#6A6E73',
                 textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem',
               }}>
-                Provide feedback to regenerate
+                {isSolutionReview ? 'Provide feedback to refine solution' : 'Provide feedback to regenerate'}
               </div>
               <TextArea
                 value={feedback}
                 onChange={(_e, val) => setFeedback(val)}
-                placeholder="e.g. Split the auth story into login + registration. Add a caching layer. Use PostgreSQL instead of SQLite."
+                placeholder={isSolutionReview
+                  ? 'e.g. Use event-driven architecture instead. Add Redis caching layer. Split the auth module.'
+                  : 'e.g. Split the auth story into login + registration. Add a caching layer. Use PostgreSQL instead of SQLite.'}
                 rows={3}
                 style={{ fontFamily: '"Red Hat Text", sans-serif', fontSize: '0.875rem' }}
-                aria-label="Plan feedback"
+                aria-label={isSolutionReview ? 'Solution feedback' : 'Plan feedback'}
               />
             </div>
 
@@ -487,7 +511,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
                 background: '#F3FAF3', padding: '0.5rem 0.75rem', borderRadius: '6px',
                 border: '1px solid #C8E6C9',
               }}>
-                Plan regenerated. Review the updated plan above.
+                {isSolutionReview ? 'Solution refined. Review the updated spec above.' : 'Plan regenerated. Review the updated plan above.'}
               </div>
             )}
 
@@ -499,7 +523,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
                 icon={approving ? <Spinner size="sm" /> : <CheckCircleIcon />}
                 style={{ backgroundColor: '#3E8635', border: 'none' }}
               >
-                {approving ? 'Approving…' : 'Approve & Start Coding'}
+                {approving ? 'Approving…' : (isSolutionReview ? 'Approve Solution & Continue' : 'Approve & Start Coding')}
               </Button>
               <Button
                 variant="secondary"
@@ -507,7 +531,7 @@ const PlanReviewPanel: React.FC<Props> = ({ jobId, onApproved, layout = 'embedde
                 isDisabled={refining || approving || !feedback.trim()}
                 icon={refining ? <Spinner size="sm" /> : <SyncAltIcon />}
               >
-                {refining ? 'Regenerating…' : 'Regenerate Plan'}
+                {refining ? 'Regenerating…' : (isSolutionReview ? 'Refine Solution' : 'Regenerate Plan')}
               </Button>
             </div>
           </>
