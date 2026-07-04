@@ -667,6 +667,72 @@ const Settings: React.FC = () => {
                   <FormGroup
                     label={
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        Code intelligence (TLDR)
+                        {prefs.tldrEnabled
+                          ? <Label isCompact color="green">Active</Label>
+                          : <Label isCompact color="grey">Off</Label>}
+                      </span>
+                    }
+                    fieldId="tldr-enabled"
+                  >
+                    <Switch
+                      id="tldr-enabled"
+                      label="Use TLDR for codebase structure and search"
+                      labelOff="Disable TLDR code intelligence"
+                      isChecked={prefs.tldrEnabled}
+                      isDisabled={workflowLoading}
+                      onChange={(_e, checked) => setPrefs({ tldrEnabled: checked })}
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.5rem' }}>
+                      When enabled, simple-mode file generation prefetches TLDR context into prompts; ReAct agents get TLDR search tools.
+                    </p>
+                  </FormGroup>
+
+                  {prefs.tldrEnabled && (
+                    <>
+                      <FormGroup label="Max TLDR context chars" fieldId="tldr-max-chars">
+                        <TextInput
+                          id="tldr-max-chars"
+                          type="number"
+                          value={String(prefs.tldrMaxChars)}
+                          min={500}
+                          max={50000}
+                          onChange={(_e, v) => setPrefs({ tldrMaxChars: Math.max(500, Math.min(50000, parseInt(v, 10) || 6000)) })}
+                          style={{ maxWidth: '120px' }}
+                        />
+                      </FormGroup>
+                      <FormGroup
+                        label="Include codebase structure"
+                        fieldId="tldr-include-structure"
+                      >
+                        <Switch
+                          id="tldr-include-structure"
+                          label="Inject tldr structure (cached per job)"
+                          labelOff="Skip structure section"
+                          isChecked={prefs.tldrIncludeStructure}
+                          isDisabled={workflowLoading}
+                          onChange={(_e, checked) => setPrefs({ tldrIncludeStructure: checked })}
+                        />
+                      </FormGroup>
+                      <FormGroup label="Min completed files before TLDR" fieldId="tldr-min-completed">
+                        <TextInput
+                          id="tldr-min-completed"
+                          type="number"
+                          value={String(prefs.tldrMinCompletedFiles)}
+                          min={0}
+                          max={100}
+                          onChange={(_e, v) => setPrefs({ tldrMinCompletedFiles: Math.max(0, Math.min(100, parseInt(v, 10) || 1)) })}
+                          style={{ maxWidth: '120px' }}
+                        />
+                      </FormGroup>
+                    </>
+                  )}
+
+                  <Divider style={{ margin: '1.5rem 0' }} />
+
+                  <FormGroup
+                    label={
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         Plan review gate
                         {prefs.planReviewEnabled
                           ? <Label isCompact color="green">Active</Label>

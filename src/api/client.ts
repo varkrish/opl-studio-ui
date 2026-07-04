@@ -830,6 +830,10 @@ export interface WorkflowConfig {
   solutioning_max_passes: number;
   solutioning_max_github_searches: number;
   auto_approve_plan: boolean;
+  tldr_enabled: boolean;
+  tldr_max_chars: number;
+  tldr_include_structure: boolean;
+  tldr_min_completed_files: number;
   updated_at?: string | null;
 }
 

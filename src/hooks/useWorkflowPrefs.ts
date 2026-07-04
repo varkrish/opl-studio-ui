@@ -19,6 +19,10 @@ export interface WorkflowPrefs {
   solutioningEnabled: boolean;
   solutioningMaxPasses: number;
   solutioningMaxGithubSearches: number;
+  tldrEnabled: boolean;
+  tldrMaxChars: number;
+  tldrIncludeStructure: boolean;
+  tldrMinCompletedFiles: number;
 }
 
 const DEFAULTS: WorkflowPrefs = {
@@ -27,6 +31,10 @@ const DEFAULTS: WorkflowPrefs = {
   solutioningEnabled: false,
   solutioningMaxPasses: 3,
   solutioningMaxGithubSearches: 10,
+  tldrEnabled: true,
+  tldrMaxChars: 6000,
+  tldrIncludeStructure: true,
+  tldrMinCompletedFiles: 1,
 };
 
 function fromApi(cfg: Partial<WorkflowConfigInput> & { auto_approve_plan?: boolean }): WorkflowPrefs {
@@ -36,6 +44,10 @@ function fromApi(cfg: Partial<WorkflowConfigInput> & { auto_approve_plan?: boole
     solutioningEnabled: Boolean(cfg.solutioning_enabled),
     solutioningMaxPasses: cfg.solutioning_max_passes ?? DEFAULTS.solutioningMaxPasses,
     solutioningMaxGithubSearches: cfg.solutioning_max_github_searches ?? DEFAULTS.solutioningMaxGithubSearches,
+    tldrEnabled: cfg.tldr_enabled ?? DEFAULTS.tldrEnabled,
+    tldrMaxChars: cfg.tldr_max_chars ?? DEFAULTS.tldrMaxChars,
+    tldrIncludeStructure: cfg.tldr_include_structure ?? DEFAULTS.tldrIncludeStructure,
+    tldrMinCompletedFiles: cfg.tldr_min_completed_files ?? DEFAULTS.tldrMinCompletedFiles,
   };
 }
 
@@ -46,6 +58,10 @@ function toApi(prefs: WorkflowPrefs): WorkflowConfigInput {
     solutioning_max_passes: prefs.solutioningMaxPasses,
     solutioning_max_github_searches: prefs.solutioningMaxGithubSearches,
     auto_approve_plan: prefs.autoApprovePlan,
+    tldr_enabled: prefs.tldrEnabled,
+    tldr_max_chars: prefs.tldrMaxChars,
+    tldr_include_structure: prefs.tldrIncludeStructure,
+    tldr_min_completed_files: prefs.tldrMinCompletedFiles,
   };
 }
 
