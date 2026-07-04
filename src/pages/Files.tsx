@@ -702,6 +702,16 @@ const Files: React.FC = () => {
             </CardBody>
           )}
         </Card>
+
+        {/* Docked AI refine chat panel — resizable, collapsible, always in the layout */}
+        <RefineChat
+          selectedJobId={selectedJobId}
+          selectedFile={selectedFile}
+          jobVision={jobs.find((j) => j.id === selectedJobId)?.vision || null}
+          jiraIssueKey={jobs.find((j) => j.id === selectedJobId)?.metadata?.jira_issue_key ?? null}
+          welcomeImport={searchParams.get('welcomeImport') === '1'}
+          onRefineComplete={handleRefineComplete}
+        />
       </div>
 
       <Modal
@@ -743,16 +753,6 @@ const Files: React.FC = () => {
           </div>
         )}
       </Modal>
-
-      {/* Floating refine button + slide-out chat panel */}
-      <RefineChat
-        selectedJobId={selectedJobId}
-        selectedFile={selectedFile}
-        jobVision={jobs.find((j) => j.id === selectedJobId)?.vision || null}
-        jiraIssueKey={jobs.find((j) => j.id === selectedJobId)?.metadata?.jira_issue_key ?? null}
-        welcomeImport={searchParams.get('welcomeImport') === '1'}
-        onRefineComplete={handleRefineComplete}
-      />
     </>
   );
 };

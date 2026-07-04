@@ -1,9 +1,10 @@
 /**
- * RefineChat — Floating AI refinement button + slide-out chat panel.
+ * RefineChat — Docked AI refinement chat panel (Cursor-style agent sidebar).
  *
  * Features:
- * - "Ask Red Hat"-style floating pill button (sparkle icon, gradient glow)
- * - Slide-out chat panel from the right (like Cursor / Copilot chat)
+ * - Permanently docked on the right of the Files workspace, full height
+ * - Resizable by dragging its left edge; collapses to a slim rail
+ * - Remembers width + open/collapsed state across sessions (localStorage)
  * - Shows original job vision as system welcome message
  * - Auto-loads all past refinement history as chat messages
  * - Rich system feedback during refinements (progress steps)
@@ -44,6 +45,13 @@ interface RefineChatProps {
 
 const POLL_MS = 2000;
 const TIMEOUT_MS = 300_000; // 5 min
+
+const MIN_WIDTH = 340;
+const MAX_WIDTH = 760;
+const DEFAULT_WIDTH = 440;
+const RAIL_WIDTH = 52;
+const WIDTH_STORAGE_KEY = 'opl.refineChat.width';
+const OPEN_STORAGE_KEY = 'opl.refineChat.open';
 
 /* ─── Chat message type ──────────────────────────────────────────────── */
 
@@ -132,7 +140,23 @@ const RefineChat: React.FC<RefineChatProps> = ({
   welcomeImport = false,
   onRefineComplete,
 }) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(OPEN_STORAGE_KEY);
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem(WIDTH_STORAGE_KEY));
+      return saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+    } catch {
+      return DEFAULT_WIDTH;
+    }
+  });
+  const isResizingRef = useRef(false);
   const welcomeImportConsumed = useRef(false);
   const [prompt, setPrompt] = useState('');
   const [refineScope, setRefineScope] = useState<RefineScope>('impact');
@@ -142,6 +166,40 @@ const RefineChat: React.FC<RefineChatProps> = ({
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  /* ── Persist open/collapsed + width across sessions ────────────────── */
+  useEffect(() => {
+    try { localStorage.setItem(OPEN_STORAGE_KEY, String(open)); } catch { /* ignore */ }
+  }, [open]);
+
+  useEffect(() => {
+    try { localStorage.setItem(WIDTH_STORAGE_KEY, String(width)); } catch { /* ignore */ }
+  }, [width]);
+
+  /* ── Drag-to-resize from the panel's left edge ─────────────────────── */
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = width;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const delta = startX - moveEvent.clientX; // dragging left grows the panel
+      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta)));
+    };
+    const onMouseUp = () => {
+      isResizingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [width]);
 
   /* ── Build initial messages: vision + history ─────────────────────── */
   useEffect(() => {
@@ -286,7 +344,7 @@ const RefineChat: React.FC<RefineChatProps> = ({
     }
   }, [open]);
 
-  /* ── Close on Escape ────────────────────────────────────────────── */
+  /* ── Collapse to rail on Escape ─────────────────────────────────── */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -410,7 +468,7 @@ const RefineChat: React.FC<RefineChatProps> = ({
       }
 
       // Success - only reached when phase is not 'refinement_failed'
-      const successText = scopePath
+      const successText = scopePath && effectiveScope !== 'project'
         ? `Done! I've updated **${scopePath}**. The file viewer will refresh to show the changes.`
         : 'Done! The refinement has been applied across the project. Files will refresh automatically.';
 
@@ -450,7 +508,7 @@ const RefineChat: React.FC<RefineChatProps> = ({
     } finally {
       setIsRefining(false);
     }
-  }, [selectedJobId, prompt, isRefining, selectedFile, onRefineComplete, addSystemMsg]);
+  }, [selectedJobId, prompt, isRefining, selectedFile, refineScope, onRefineComplete, addSystemMsg]);
 
   /* ── Handle Enter to send (Shift+Enter for newline) ─────────────── */
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -580,114 +638,93 @@ const RefineChat: React.FC<RefineChatProps> = ({
     );
   };
 
-  /* ── Render ──────────────────────────────────────────────────────── */
-  return (
-    <>
-      {/* ── Floating button ─────────────────────────────────────────── */}
-      {!open && (
-        <button
-          onClick={() => setOpen(true)}
-          aria-label="Refine with AI"
+  /* ── Render: collapsed rail ──────────────────────────────────────── */
+  if (!open) {
+    return (
+      <div
+        onClick={() => setOpen(true)}
+        role="button"
+        tabIndex={0}
+        aria-label="Open refine chat"
+        title="Refine with AI"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') setOpen(true);
+        }}
+        style={{
+          width: RAIL_WIDTH,
+          flexShrink: 0,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          paddingTop: 18,
+          gap: 14,
+          borderRadius: 8,
+          cursor: 'pointer',
+          background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0d1117 100%)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+          transition: 'filter 0.15s ease',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.15)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.filter = 'brightness(1)'; }}
+      >
+        <SparkleIcon size={22} color="#fff" />
+        <span
           style={{
-            position: 'fixed',
-            bottom: 32,
-            right: 32,
-            zIndex: 9998,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '14px 28px 14px 22px',
-            border: 'none',
-            borderRadius: 999,
-            cursor: 'pointer',
-            fontFamily: '"Red Hat Display", "Red Hat Text", sans-serif',
-            fontSize: '1rem',
+            writingMode: 'vertical-rl',
+            transform: 'rotate(180deg)',
+            color: 'rgba(255,255,255,0.85)',
+            fontFamily: '"Red Hat Display", sans-serif',
+            fontSize: '0.8rem',
             fontWeight: 600,
-            color: '#fff',
-            background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-            boxShadow: `
-              0 0 0 2px transparent,
-              0 0 0 3px rgba(0,0,0,0.05),
-              0 8px 32px rgba(0, 0, 0, 0.35),
-              inset 0 1px 0 rgba(255,255,255,0.05)
-            `,
-            backgroundClip: 'padding-box',
-            outline: '2.5px solid transparent',
-            outlineOffset: '2px',
-            transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-2px) scale(1.03)';
-            e.currentTarget.style.boxShadow = `
-              0 0 24px rgba(204, 0, 0, 0.35),
-              0 0 48px rgba(128, 0, 128, 0.2),
-              0 12px 40px rgba(0, 0, 0, 0.4),
-              inset 0 1px 0 rgba(255,255,255,0.08)
-            `;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0) scale(1)';
-            e.currentTarget.style.boxShadow = `
-              0 0 0 2px transparent,
-              0 0 0 3px rgba(0,0,0,0.05),
-              0 8px 32px rgba(0, 0, 0, 0.35),
-              inset 0 1px 0 rgba(255,255,255,0.05)
-            `;
+            letterSpacing: '0.04em',
           }}
         >
-          {/* Gradient border ring */}
-          <span
-            aria-hidden
-            style={{
-              position: 'absolute',
-              inset: -3,
-              borderRadius: 999,
-              padding: 2.5,
-              background: 'linear-gradient(135deg, #CC0000, #A30000, #7B2D8B, #4A1A6B)',
-              WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-              WebkitMaskComposite: 'xor',
-              maskComposite: 'exclude',
-              pointerEvents: 'none',
-            }}
-          />
-          <SparkleIcon size={22} color="#fff" />
-          <span>Refine</span>
-        </button>
-      )}
+          Refine with AI
+        </span>
+      </div>
+    );
+  }
 
-      {/* ── Backdrop ────────────────────────────────────────────────── */}
-      {open && (
-        <div
-          onClick={() => setOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9998,
-            backgroundColor: 'rgba(0, 0, 0, 0.25)',
-            backdropFilter: 'blur(2px)',
-            transition: 'opacity 0.2s ease',
-          }}
-        />
-      )}
-
-      {/* ── Slide-out panel ─────────────────────────────────────────── */}
+  /* ── Render: docked panel ────────────────────────────────────────── */
+  return (
       <div
         style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 440,
-          maxWidth: '100vw',
-          zIndex: 9999,
-          transform: open ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          position: 'relative',
+          width,
+          maxWidth: '100%',
+          flexShrink: 0,
+          height: '100%',
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: '#FAFAFA',
-          boxShadow: open ? '-8px 0 40px rgba(0, 0, 0, 0.15)' : 'none',
+          borderRadius: 8,
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)',
         }}
       >
+        {/* ── Resize handle (drag left edge) ───────────────────────── */}
+        <div
+          onMouseDown={handleResizeStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize refine panel"
+          style={{
+            position: 'absolute',
+            left: -9,
+            top: 0,
+            bottom: 0,
+            width: 14,
+            cursor: 'col-resize',
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div style={{ width: 3, height: 44, borderRadius: 2, backgroundColor: '#D2D2D2' }} />
+        </div>
+
         {/* ── Header ──────────────────────────────────────────────── */}
         <div
           style={{
@@ -726,7 +763,8 @@ const RefineChat: React.FC<RefineChatProps> = ({
             </div>
             <button
               onClick={() => setOpen(false)}
-              aria-label="Close refine panel"
+              aria-label="Collapse refine panel"
+              title="Collapse (Esc)"
               style={{
                 background: 'rgba(255,255,255,0.1)',
                 border: 'none',
@@ -920,12 +958,11 @@ const RefineChat: React.FC<RefineChatProps> = ({
               </button>
             </div>
             <div style={{ marginTop: 6, fontSize: '0.7rem', color: '#A3A3A3', fontFamily: '"Red Hat Text", sans-serif' }}>
-              Enter to send &middot; Shift+Enter for new line &middot; Esc to close
+              Enter to send &middot; Shift+Enter for new line &middot; Esc to collapse
             </div>
           </div>
         )}
       </div>
-    </>
   );
 };
 

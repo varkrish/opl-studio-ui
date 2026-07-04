@@ -50,18 +50,25 @@ describe('Files Page', () => {
     cy.contains('Hello World').should('be.visible');
   });
 
-  it('should show floating Refine button when a job is selected', () => {
-    cy.wait('@getJobs');
-    cy.wait('@getFiles');
-    cy.get('button[aria-label="Refine with AI"]').should('be.visible');
-    cy.contains('Refine').should('be.visible');
-  });
-
-  it('should open refine chat panel when clicking the floating button', () => {
+  it('should show the docked refine chat panel by default when a job is selected', () => {
     cy.intercept('GET', '/api/jobs/*/refinements', { body: [] }).as('getRefinements');
     cy.wait('@getJobs');
     cy.wait('@getFiles');
-    cy.get('button[aria-label="Refine with AI"]').click();
+    cy.contains('Refine with AI').should('be.visible');
+    cy.get('textarea[placeholder*="Describe the change"]').should('exist');
+  });
+
+  it('should collapse to a rail and reopen the refine chat panel', () => {
+    cy.intercept('GET', '/api/jobs/*/refinements', { body: [] }).as('getRefinements');
+    cy.wait('@getJobs');
+    cy.wait('@getFiles');
+    cy.contains('Refine with AI').should('be.visible');
+
+    cy.get('button[aria-label="Collapse refine panel"]').click();
+    cy.get('textarea[placeholder*="Describe the change"]').should('not.exist');
+    cy.get('[aria-label="Open refine chat"]').should('be.visible');
+
+    cy.get('[aria-label="Open refine chat"]').click();
     cy.contains('Refine with AI').should('be.visible');
     cy.get('textarea[placeholder*="Describe the change"]').should('exist');
   });
