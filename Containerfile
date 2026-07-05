@@ -37,6 +37,9 @@ COPY --from=builder /build/dist /opt/app-root/src
 COPY nginx.conf.template /etc/nginx/nginx.conf.template
 
 ENV BACKEND_HOST=backend
+ENV VITE_AUTH_ENABLED=true
+ENV VITE_OIDC_AUTHORITY=""
+ENV VITE_OIDC_CLIENT_ID="opl-studio"
 
 RUN mkdir -p /tmp/client_body /tmp/proxy /tmp/fastcgi /tmp/uwsgi /tmp/scgi && \
     chown -R 1001:0 /opt/app-root/src /var/log/nginx /tmp /etc/nginx && \
@@ -49,4 +52,13 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8080/ || exit 1
 
-CMD ["/bin/sh", "-c", "envsubst '${BACKEND_HOST}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
+# Generate /env.js at container startup so runtime env vars override build-time
+# VITE_ values without needing to rebuild the image.
+CMD ["/bin/sh", "-c", "\
+  envsubst '${BACKEND_HOST}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && \
+  printf 'window.__ENV__={VITE_AUTH_ENABLED:\"%s\",VITE_OIDC_AUTHORITY:\"%s\",VITE_OIDC_CLIENT_ID:\"%s\"};\\n' \
+    \"${VITE_AUTH_ENABLED}\" \
+    \"${VITE_OIDC_AUTHORITY}\" \
+    \"${VITE_OIDC_CLIENT_ID}\" \
+  > /opt/app-root/src/env.js && \
+  nginx -g 'daemon off;'"]

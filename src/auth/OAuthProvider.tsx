@@ -20,11 +20,23 @@ interface OAuthContextType {
 
 const OAuthContext = createContext<OAuthContextType | null>(null);
 
-const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== "false";
-const OIDC_AUTHORITY = import.meta.env.VITE_OIDC_AUTHORITY || 
-  (import.meta.env.VITE_KEYCLOAK_URL && `${import.meta.env.VITE_KEYCLOAK_URL}/realms/${import.meta.env.VITE_KEYCLOAK_REALM}`) || 
+// Runtime config injected by nginx at container startup via /env.js.
+// This allows overriding build-time VITE_ vars without rebuilding the image.
+const runtimeEnv = (window as any).__ENV__ || {};
+
+const _authEnabled = runtimeEnv.VITE_AUTH_ENABLED ?? import.meta.env.VITE_AUTH_ENABLED;
+const AUTH_ENABLED = _authEnabled !== "false" && _authEnabled !== false;
+
+const OIDC_AUTHORITY =
+  runtimeEnv.VITE_OIDC_AUTHORITY ||
+  import.meta.env.VITE_OIDC_AUTHORITY ||
+  (import.meta.env.VITE_KEYCLOAK_URL && `${import.meta.env.VITE_KEYCLOAK_URL}/realms/${import.meta.env.VITE_KEYCLOAK_REALM}`) ||
   "http://localhost:8180/realms/opl-crew";
-const OIDC_CLIENT_ID = import.meta.env.VITE_OIDC_CLIENT_ID || import.meta.env.VITE_KEYCLOAK_CLIENT_ID || "opl-studio";
+const OIDC_CLIENT_ID =
+  runtimeEnv.VITE_OIDC_CLIENT_ID ||
+  import.meta.env.VITE_OIDC_CLIENT_ID ||
+  import.meta.env.VITE_KEYCLOAK_CLIENT_ID ||
+  "opl-studio";
 
 // Global reference for axios interceptors
 export let activeToken: string | null = null;
