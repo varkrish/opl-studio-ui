@@ -866,3 +866,35 @@ export async function deleteWorkflowConfig(): Promise<{ deleted: boolean }> {
   const { data } = await api.delete<{ deleted: boolean }>('/api/workflow/config');
   return data;
 }
+
+// ── MCP configuration ────────────────────────────────────────────────────────
+
+export interface McpConfig {
+  server_name: string;
+  target_agent: string;
+  transport_type: string;
+  command?: string | null;
+  args: string[];
+  url?: string | null;
+  env: Record<string, string>;
+  tools: string[];
+  updated_at: string;
+}
+
+export type McpConfigInput = Omit<McpConfig, 'updated_at'>;
+
+export async function getMcpConfigs(): Promise<McpConfig[]> {
+  const { data } = await api.get<McpConfig[]>('/api/mcp/configs');
+  return data;
+}
+
+export async function saveMcpConfig(cfg: McpConfigInput): Promise<{ saved: boolean }> {
+  const { data } = await api.post<{ saved: boolean }>('/api/mcp/configs', cfg);
+  return data;
+}
+
+export async function deleteMcpConfig(serverName: string): Promise<{ deleted: boolean }> {
+  const { data } = await api.delete<{ deleted: boolean }>(`/api/mcp/configs/${encodeURIComponent(serverName)}`);
+  return data;
+}
+

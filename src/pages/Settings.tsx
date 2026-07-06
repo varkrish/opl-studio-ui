@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   CardTitle,
@@ -29,15 +29,19 @@ import {
   Spinner,
   ActionList,
   ActionListItem,
+  FormSelect,
+  FormSelectOption,
+  TextArea,
 } from '@patternfly/react-core';
-import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon, LinkIcon, CheckCircleIcon, TimesCircleIcon, GithubIcon } from '@patternfly/react-icons';
+import { CogIcon, UserIcon, KeyIcon, BellIcon, AutomationIcon, LinkIcon, CheckCircleIcon, TimesCircleIcon, GithubIcon, CubeIcon } from '@patternfly/react-icons';
 import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
 import {
   getJiraConfig, saveJiraConfig, deleteJiraConfig, testJiraConnection,
   getLlmConfig, saveLlmConfig, deleteLlmConfig, testLlmConnection, getLlmModels,
   getGithubConfig, saveGithubConfig, deleteGithubConfig, testGithubConnection,
+  getMcpConfigs, saveMcpConfig, deleteMcpConfig
 } from '../api/client';
-import type { JiraConfig, LlmConfig, GitHubConfig } from '../api/client';
+import type { JiraConfig, LlmConfig, GitHubConfig, McpConfig } from '../api/client';
 
 const Settings: React.FC = () => {
   const [activeTabKey, setActiveTabKey] = useState<string | number>(0);
@@ -50,6 +54,23 @@ const Settings: React.FC = () => {
   const [githubLoading, setGithubLoading] = useState(false);
   const [githubTestStatus, setGithubTestStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [githubSaveStatus, setGithubSaveStatus] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // MCP configurations state
+  const [mcpConfigs, setMcpConfigs] = useState<McpConfig[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpListLoading, setMcpListLoading] = useState(false);
+  const [showMcpForm, setShowMcpForm] = useState(false);
+  const [editingMcp, setEditingMcp] = useState<McpConfig | null>(null);
+
+  const [mcpServerName, setMcpServerName] = useState('');
+  const [mcpTargetAgent, setMcpTargetAgent] = useState('global');
+  const [mcpTransportType, setMcpTransportType] = useState('stdio');
+  const [mcpCommand, setMcpCommand] = useState('');
+  const [mcpArgs, setMcpArgs] = useState('');
+  const [mcpUrl, setMcpUrl] = useState('');
+  const [mcpEnv, setMcpEnv] = useState('{}');
+  const [mcpTools, setMcpTools] = useState('');
+  const [mcpSaveError, setMcpSaveError] = useState<string | null>(null);
 
   // General Settings
   const [workspacePath, setWorkspacePath] = useState('./workspace');
@@ -120,7 +141,114 @@ const Settings: React.FC = () => {
     getGithubConfig()
       .then(cfg => setGithubConfig(cfg))
       .catch(() => {});
+    loadMcpConfigs();
+  }, [loadMcpConfigs]);
+
+  const loadMcpConfigs = useCallback(() => {
+    setMcpListLoading(true);
+    getMcpConfigs()
+      .then(setMcpConfigs)
+      .catch(err => console.error("Failed to load MCP configs", err))
+      .finally(() => setMcpListLoading(false));
   }, []);
+
+  const handleAddMcpClick = () => {
+    setEditingMcp(null);
+    setMcpServerName('');
+    setMcpTargetAgent('global');
+    setMcpTransportType('stdio');
+    setMcpCommand('');
+    setMcpArgs('');
+    setMcpUrl('');
+    setMcpEnv('{}');
+    setMcpTools('');
+    setMcpSaveError(null);
+    setShowMcpForm(true);
+  };
+
+  const handleEditMcpClick = (cfg: McpConfig) => {
+    setEditingMcp(cfg);
+    setMcpServerName(cfg.server_name);
+    setMcpTargetAgent(cfg.target_agent);
+    setMcpTransportType(cfg.transport_type);
+    setMcpCommand(cfg.command || '');
+    setMcpArgs((cfg.args || []).join(' '));
+    setMcpUrl(cfg.url || '');
+    setMcpEnv(JSON.stringify(cfg.env || {}, null, 2));
+    setMcpTools((cfg.tools || []).join(', '));
+    setMcpSaveError(null);
+    setShowMcpForm(true);
+  };
+
+  const handleMcpSave = async () => {
+    setMcpSaveError(null);
+    if (!mcpServerName.trim()) {
+      setMcpSaveError('Server name is required');
+      return;
+    }
+    
+    let parsedEnv: Record<string, string> = {};
+    if (mcpEnv.trim()) {
+      try {
+        parsedEnv = JSON.parse(mcpEnv);
+        if (typeof parsedEnv !== 'object' || Array.isArray(parsedEnv)) {
+          setMcpSaveError('Environment variables must be a JSON object');
+          return;
+        }
+      } catch {
+        setMcpSaveError('Environment variables is not a valid JSON string');
+        return;
+      }
+    }
+
+    if (mcpTransportType === 'stdio' && !mcpCommand.trim()) {
+      setMcpSaveError('Command is required for stdio transport');
+      return;
+    }
+
+    if (mcpTransportType === 'sse' && !mcpUrl.trim()) {
+      setMcpSaveError('Connection URL is required for sse transport');
+      return;
+    }
+
+    const parsedArgs = mcpArgs.trim() ? mcpArgs.split(/\s+/) : [];
+    const parsedTools = mcpTools.trim() ? mcpTools.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    setMcpLoading(true);
+    try {
+      await saveMcpConfig({
+        server_name: mcpServerName.trim(),
+        target_agent: mcpTargetAgent,
+        transport_type: mcpTransportType,
+        command: mcpTransportType === 'stdio' ? mcpCommand.trim() : null,
+        args: mcpTransportType === 'stdio' ? parsedArgs : [],
+        url: mcpTransportType === 'sse' ? mcpUrl.trim() : null,
+        env: parsedEnv,
+        tools: parsedTools,
+      });
+      setShowMcpForm(false);
+      loadMcpConfigs();
+    } catch {
+      setMcpSaveError('Failed to save MCP configuration.');
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  const handleMcpDelete = async (serverName: string) => {
+    if (!window.confirm(`Are you sure you want to delete MCP server "${serverName}"?`)) {
+      return;
+    }
+    setMcpLoading(true);
+    try {
+      await deleteMcpConfig(serverName);
+      loadMcpConfigs();
+    } catch {
+      alert(`Failed to delete MCP server "${serverName}".`);
+    } finally {
+      setMcpLoading(false);
+    }
+  };
 
   const handleLlmTest = async () => {
     setLlmTestStatus(null);
@@ -1003,6 +1131,270 @@ const Settings: React.FC = () => {
                     </ActionListItem>
                   )}
                 </ActionList>
+              </div>
+            </Tab>
+
+            {/* MCP Integrations Tab */}
+            <Tab eventKey={7} title={<TabTitleText><CubeIcon /> MCP Integrations</TabTitleText>}>
+              <div style={{ padding: '1.5rem 0' }}>
+                <Split style={{ marginBottom: '1.5rem' }}>
+                  <SplitItem isFilled>
+                    <Title headingLevel="h3" size="lg">
+                      Model Context Protocol (MCP) Servers
+                    </Title>
+                    <p style={{ fontSize: '0.875rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Connect external agent tools dynamically. By default, these servers are available to all agents.
+                    </p>
+                  </SplitItem>
+                  {!showMcpForm && (
+                    <SplitItem>
+                      <Button variant="primary" onClick={handleAddMcpClick}>
+                        Add Integration
+                      </Button>
+                    </SplitItem>
+                  )}
+                </Split>
+
+                {showMcpForm ? (
+                  <Card isFlat style={{ border: '1px solid #D2D2D2', padding: '1.5rem' }}>
+                    <CardHeader style={{ paddingBottom: '1rem' }}>
+                      <Title headingLevel="h4" size="md">
+                        {editingMcp ? `Edit MCP Server: ${mcpServerName}` : 'Add New MCP Integration'}
+                      </Title>
+                    </CardHeader>
+                    <CardBody>
+                      <Form style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        {mcpSaveError && (
+                          <Alert variant="danger" title={mcpSaveError} isInline />
+                        )}
+
+                        <Grid hasGutter>
+                          <GridItem span={6}>
+                            <FormGroup label="Server Name" fieldId="mcp-name" isRequired>
+                              <TextInput
+                                id="mcp-name"
+                                isRequired
+                                value={mcpServerName}
+                                onChange={(_event, value) => setMcpServerName(value)}
+                                placeholder="e.g. graphrag-codebase"
+                                isDisabled={!!editingMcp}
+                              />
+                              <p style={{ fontSize: '0.75rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                                A unique identifier for the MCP server.
+                              </p>
+                            </FormGroup>
+                          </GridItem>
+
+                          <GridItem span={6}>
+                            <FormGroup label="Target Agent" fieldId="mcp-agent">
+                              <FormSelect
+                                value={mcpTargetAgent}
+                                onChange={(_event, value) => setMcpTargetAgent(value)}
+                                id="mcp-agent"
+                              >
+                                <FormSelectOption value="global" label="Global (All Agents)" />
+                                <FormSelectOption value="developer" label="Developer Agent" />
+                                <FormSelectOption value="devops" label="DevOps Agent" />
+                                <FormSelectOption value="frontend" label="Frontend Agent" />
+                                <FormSelectOption value="tech_architect" label="Tech Architect" />
+                                <FormSelectOption value="product_owner" label="Product Owner" />
+                                <FormSelectOption value="test_agent" label="Test Agent" />
+                              </FormSelect>
+                              <p style={{ fontSize: '0.75rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                                Which agent role can invoke this server's tools.
+                              </p>
+                            </FormGroup>
+                          </GridItem>
+
+                          <GridItem span={12}>
+                            <FormGroup label="Transport Type" fieldId="mcp-transport" isRequired>
+                              <FormSelect
+                                value={mcpTransportType}
+                                onChange={(_event, value) => setMcpTransportType(value)}
+                                id="mcp-transport"
+                              >
+                                <FormSelectOption value="stdio" label="Stdio (Spawn local command/process)" />
+                                <FormSelectOption value="sse" label="SSE (Connect to remote HTTP stream server)" />
+                              </FormSelect>
+                            </FormGroup>
+                          </GridItem>
+
+                          {mcpTransportType === 'stdio' ? (
+                            <>
+                              <GridItem span={4}>
+                                <FormGroup label="Command" fieldId="mcp-command" isRequired>
+                                  <TextInput
+                                    id="mcp-command"
+                                    value={mcpCommand}
+                                    onChange={(_event, value) => setMcpCommand(value)}
+                                    placeholder="e.g. python, uv, node, docker"
+                                  />
+                                </FormGroup>
+                              </GridItem>
+                              <GridItem span={8}>
+                                <FormGroup label="Arguments" fieldId="mcp-args">
+                                  <TextInput
+                                    id="mcp-args"
+                                    value={mcpArgs}
+                                    onChange={(_event, value) => setMcpArgs(value)}
+                                    placeholder="e.g. -m crew_jira_connector.server"
+                                  />
+                                  <p style={{ fontSize: '0.75rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                                    Space-separated arguments passed to the command.
+                                  </p>
+                                </FormGroup>
+                              </GridItem>
+                            </>
+                          ) : (
+                            <GridItem span={12}>
+                              <FormGroup label="SSE URL" fieldId="mcp-url" isRequired>
+                                <TextInput
+                                  id="mcp-url"
+                                  value={mcpUrl}
+                                  onChange={(_event, value) => setMcpUrl(value)}
+                                  placeholder="e.g. http://localhost:5001/sse"
+                                />
+                              </FormGroup>
+                            </GridItem>
+                          )}
+
+                          <GridItem span={12}>
+                            <FormGroup label="Environment Variables (JSON Object)" fieldId="mcp-env">
+                              <TextArea
+                                id="mcp-env"
+                                value={mcpEnv}
+                                onChange={(_event, value) => setMcpEnv(value)}
+                                rows={4}
+                                placeholder='{"API_KEY": "secret_value"}'
+                                style={{ fontFamily: 'monospace' }}
+                              />
+                            </FormGroup>
+                          </GridItem>
+
+                          <GridItem span={12}>
+                            <FormGroup label="Allowed Tools Whitelist (Optional)" fieldId="mcp-tools">
+                              <TextInput
+                                id="mcp-tools"
+                                value={mcpTools}
+                                onChange={(_event, value) => setMcpTools(value)}
+                                placeholder="e.g. get_tickets, create_branch (leave empty for all)"
+                              />
+                              <p style={{ fontSize: '0.75rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                                Comma-separated list of tool names to import (empty imports all tools).
+                              </p>
+                            </FormGroup>
+                          </GridItem>
+                        </Grid>
+
+                        <ActionList style={{ marginTop: '1rem' }}>
+                          <ActionListItem>
+                            <Button variant="primary" onClick={handleMcpSave} isDisabled={mcpLoading}>
+                              {mcpLoading ? <Spinner size="sm" /> : 'Save Integration'}
+                            </Button>
+                          </ActionListItem>
+                          <ActionListItem>
+                            <Button variant="link" onClick={() => setShowMcpForm(false)} isDisabled={mcpLoading}>
+                              Cancel
+                            </Button>
+                          </ActionListItem>
+                        </ActionList>
+                      </Form>
+                    </CardBody>
+                  </Card>
+                ) : (
+                  <div>
+                    {mcpListLoading ? (
+                      <div style={{ textAlign: 'center', padding: '3rem' }}>
+                        <Spinner size="lg" />
+                        <p style={{ marginTop: '1rem' }}>Loading MCP Servers...</p>
+                      </div>
+                    ) : mcpConfigs.length === 0 ? (
+                      <Card isFlat style={{ border: '1px dashed #D2D2D2', backgroundColor: '#F8F9FA' }}>
+                        <CardBody style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+                          <CubeIcon style={{ fontSize: '3rem', color: '#6A6E73', marginBottom: '1rem' }} />
+                          <Title headingLevel="h4" size="md">
+                            No Dynamic MCP Servers Configured
+                          </Title>
+                          <p style={{ color: '#6A6E73', marginTop: '0.5rem', marginBottom: '1.5rem', maxWidth: '500px', marginLeft: 'auto', marginRight: 'auto' }}>
+                            Configure local stdio tools or remote SSE endpoints to give your agents extra capabilities (e.g. Neo4j graph traversal, Jira access, custom dev tools).
+                          </p>
+                          <Button variant="secondary" onClick={handleAddMcpClick}>
+                            Add Your First Integration
+                          </Button>
+                        </CardBody>
+                      </Card>
+                    ) : (
+                      <Grid hasGutter>
+                        {mcpConfigs.map((cfg) => (
+                          <GridItem span={6} key={cfg.server_name}>
+                            <Card isFlat style={{ border: '1px solid #D2D2D2', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                              <CardHeader style={{ paddingBottom: '0.5rem' }}>
+                                <Split hasGutter style={{ width: '100%', alignItems: 'center' }}>
+                                  <SplitItem isFilled>
+                                    <Title headingLevel="h4" size="md" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                      <CubeIcon style={{ color: '#0066CC' }} /> {cfg.server_name}
+                                    </Title>
+                                  </SplitItem>
+                                  <SplitItem>
+                                    <Label color={cfg.target_agent === 'global' ? 'blue' : 'green'}>
+                                      {cfg.target_agent === 'global' ? 'Global' : `Agent: ${cfg.target_agent}`}
+                                    </Label>
+                                  </SplitItem>
+                                  <SplitItem>
+                                    <Label color={cfg.transport_type === 'stdio' ? 'orange' : 'purple'}>
+                                      {cfg.transport_type === 'stdio' ? 'Stdio' : 'SSE'}
+                                    </Label>
+                                  </SplitItem>
+                                </Split>
+                              </CardHeader>
+                              <CardBody style={{ flexGrow: 1, paddingBottom: '1rem' }}>
+                                <Flex direction={{ default: 'column' }} gap={{ default: 'gapXs' }} style={{ fontSize: '0.875rem' }}>
+                                  {cfg.transport_type === 'stdio' ? (
+                                    <>
+                                      <FlexItem>
+                                        <strong>Command:</strong> <code style={{ backgroundColor: '#F0F0F0', padding: '0.125rem 0.25rem', borderRadius: '3px' }}>{cfg.command}</code>
+                                      </FlexItem>
+                                      {cfg.args && cfg.args.length > 0 && (
+                                        <FlexItem>
+                                          <strong>Args:</strong> <code style={{ backgroundColor: '#F0F0F0', padding: '0.125rem 0.25rem', borderRadius: '3px' }}>{cfg.args.join(' ')}</code>
+                                        </FlexItem>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <FlexItem style={{ wordBreak: 'break-all' }}>
+                                      <strong>URL:</strong> <a href={cfg.url || '#'} target="_blank" rel="noreferrer">{cfg.url}</a>
+                                    </FlexItem>
+                                  )}
+                                  <FlexItem>
+                                    <strong>Env vars:</strong> {Object.keys(cfg.env || {}).length > 0 ? `${Object.keys(cfg.env).length} configured` : 'None'}
+                                  </FlexItem>
+                                  <FlexItem>
+                                    <strong>Tools:</strong> {cfg.tools && cfg.tools.length > 0 ? cfg.tools.join(', ') : 'All tools imported'}
+                                  </FlexItem>
+                                </Flex>
+                              </CardBody>
+                              <CardBody style={{ paddingTop: 0 }}>
+                                <Divider style={{ marginBottom: '0.75rem' }} />
+                                <ActionList>
+                                  <ActionListItem>
+                                    <Button variant="secondary" isSmall onClick={() => handleEditMcpClick(cfg)}>
+                                      Edit
+                                    </Button>
+                                  </ActionListItem>
+                                  <ActionListItem>
+                                    <Button variant="danger" isSmall onClick={() => handleMcpDelete(cfg.server_name)} isDisabled={mcpLoading}>
+                                      Delete
+                                    </Button>
+                                  </ActionListItem>
+                                </ActionList>
+                              </CardBody>
+                            </Card>
+                          </GridItem>
+                        ))}
+                      </Grid>
+                    )}
+                  </div>
+                )}
               </div>
             </Tab>
 
