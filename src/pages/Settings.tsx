@@ -134,6 +134,7 @@ const Settings: React.FC = () => {
           setModelManager(cfg.model_manager || '');
           setModelWorker(cfg.model_worker || '');
           setModelReviewer(cfg.model_reviewer || '');
+          setApiKey(cfg.api_token_masked || '');
         }
       })
       .catch(() => {});
