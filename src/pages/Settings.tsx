@@ -107,6 +107,14 @@ const Settings: React.FC = () => {
     'deepseek-r1-distill-qwen-14b',
   ]);
 
+  const loadMcpConfigs = useCallback(() => {
+    setMcpListLoading(true);
+    getMcpConfigs()
+      .then(setMcpConfigs)
+      .catch(err => console.error("Failed to load MCP configs", err))
+      .finally(() => setMcpListLoading(false));
+  }, []);
+
   useEffect(() => {
     getJiraConfig()
       .then(cfg => {
@@ -143,14 +151,6 @@ const Settings: React.FC = () => {
       .catch(() => {});
     loadMcpConfigs();
   }, [loadMcpConfigs]);
-
-  const loadMcpConfigs = useCallback(() => {
-    setMcpListLoading(true);
-    getMcpConfigs()
-      .then(setMcpConfigs)
-      .catch(err => console.error("Failed to load MCP configs", err))
-      .finally(() => setMcpListLoading(false));
-  }, []);
 
   const handleAddMcpClick = () => {
     setEditingMcp(null);
