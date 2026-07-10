@@ -1377,12 +1377,12 @@ const Settings: React.FC = () => {
                                 <Divider style={{ marginBottom: '0.75rem' }} />
                                 <ActionList>
                                   <ActionListItem>
-                                    <Button variant="secondary" isSmall onClick={() => handleEditMcpClick(cfg)}>
+                                    <Button variant="secondary" size="sm" onClick={() => handleEditMcpClick(cfg)}>
                                       Edit
                                     </Button>
                                   </ActionListItem>
                                   <ActionListItem>
-                                    <Button variant="danger" isSmall onClick={() => handleMcpDelete(cfg.server_name)} isDisabled={mcpLoading}>
+                                    <Button variant="danger" size="sm" onClick={() => handleMcpDelete(cfg.server_name)} isDisabled={mcpLoading}>
                                       Delete
                                     </Button>
                                   </ActionListItem>
