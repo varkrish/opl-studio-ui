@@ -23,6 +23,7 @@ export interface WorkflowPrefs {
   tldrMaxChars: number;
   tldrIncludeStructure: boolean;
   tldrMinCompletedFiles: number;
+  parallelFileWorkers: number;
 }
 
 const DEFAULTS: WorkflowPrefs = {
@@ -35,6 +36,7 @@ const DEFAULTS: WorkflowPrefs = {
   tldrMaxChars: 6000,
   tldrIncludeStructure: true,
   tldrMinCompletedFiles: 1,
+  parallelFileWorkers: 2,
 };
 
 function fromApi(cfg: Partial<WorkflowConfigInput> & { auto_approve_plan?: boolean }): WorkflowPrefs {
@@ -48,6 +50,7 @@ function fromApi(cfg: Partial<WorkflowConfigInput> & { auto_approve_plan?: boole
     tldrMaxChars: cfg.tldr_max_chars ?? DEFAULTS.tldrMaxChars,
     tldrIncludeStructure: cfg.tldr_include_structure ?? DEFAULTS.tldrIncludeStructure,
     tldrMinCompletedFiles: cfg.tldr_min_completed_files ?? DEFAULTS.tldrMinCompletedFiles,
+    parallelFileWorkers: cfg.parallel_file_workers ?? DEFAULTS.parallelFileWorkers,
   };
 }
 
@@ -62,6 +65,7 @@ function toApi(prefs: WorkflowPrefs): WorkflowConfigInput {
     tldr_max_chars: prefs.tldrMaxChars,
     tldr_include_structure: prefs.tldrIncludeStructure,
     tldr_min_completed_files: prefs.tldrMinCompletedFiles,
+    parallel_file_workers: prefs.parallelFileWorkers,
   };
 }
 

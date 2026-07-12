@@ -847,6 +847,7 @@ export interface WorkflowConfig {
   tldr_max_chars: number;
   tldr_include_structure: boolean;
   tldr_min_completed_files: number;
+  parallel_file_workers: number;
   updated_at?: string | null;
 }
 

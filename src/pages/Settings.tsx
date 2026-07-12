@@ -860,6 +860,27 @@ const Settings: React.FC = () => {
                   <Divider style={{ margin: '1.5rem 0' }} />
 
                   <FormGroup
+                    label="Parallel file workers"
+                    fieldId="parallel-file-workers"
+                  >
+                    <TextInput
+                      id="parallel-file-workers"
+                      type="number"
+                      value={String(prefs.parallelFileWorkers)}
+                      min={1}
+                      max={10}
+                      isDisabled={workflowLoading}
+                      onChange={(_e, v) => setPrefs({ parallelFileWorkers: Math.max(1, Math.min(10, parseInt(v, 10) || 2)) })}
+                      style={{ maxWidth: '120px' }}
+                    />
+                    <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                      Number of concurrent LLM threads generating files during development. Lower values reduce load on rate-limited endpoints (default: 2).
+                    </p>
+                  </FormGroup>
+
+                  <Divider style={{ margin: '1.5rem 0' }} />
+
+                  <FormGroup
                     label={
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         Plan review gate
