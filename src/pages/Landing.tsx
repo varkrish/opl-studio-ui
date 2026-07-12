@@ -122,6 +122,8 @@ const Landing: React.FC = () => {
   // per-job: true means skip review even if server plan_review is enabled
   const [reviewPlanOverride, setReviewPlanOverride] = useState<boolean | null>(null);
   const [reviewPlanSelectOpen, setReviewPlanSelectOpen] = useState(false);
+  const [capabilityProfile, setCapabilityProfile] = useState<'fast' | 'full' | 'auto'>('auto');
+  const [capabilitySelectOpen, setCapabilitySelectOpen] = useState(false);
   // resolved: null → follow global pref; true/false → explicit per-job choice
   const effectiveAutoApprove = reviewPlanOverride !== null
     ? reviewPlanOverride
@@ -357,6 +359,7 @@ const Landing: React.FC = () => {
         effectiveAutoApprove,
         selectedJiraIssue ?? undefined,
         githubConnected ? (targetRepoName.trim() || undefined) : undefined,
+        capabilityProfile !== 'auto' ? (capabilityProfile as 'fast' | 'full') : undefined,
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -1167,11 +1170,49 @@ const Landing: React.FC = () => {
                     </Button>
                   </div>
 
-                  {/* Per-job plan review toggle */}
+                  {/* Per-job plan review toggle + capability profile */}
                   <div style={{
-                    display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    display: 'flex', alignItems: 'center', gap: '0.75rem',
                     marginTop: '1rem', flexWrap: 'wrap',
                   }}>
+                    <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Capability:</Label>
+                    <Select
+                      id="capability-profile-select"
+                      isOpen={capabilitySelectOpen}
+                      selected={capabilityProfile}
+                      onSelect={(_e, val) => {
+                        setCapabilityProfile(val as 'fast' | 'full' | 'auto');
+                        setCapabilitySelectOpen(false);
+                      }}
+                      onOpenChange={(isOpen) => setCapabilitySelectOpen(isOpen)}
+                      toggle={(toggleRef) => (
+                        <MenuToggle
+                          ref={toggleRef}
+                          onClick={() => setCapabilitySelectOpen(!capabilitySelectOpen)}
+                          isExpanded={capabilitySelectOpen}
+                          style={{
+                            backgroundColor: 'white', border: '1px solid #D2D2D2',
+                            borderRadius: '8px', fontSize: '0.875rem',
+                            minWidth: '190px', color: '#151515',
+                          }}
+                        >
+                          {capabilityProfile === 'fast' ? '⚡ Fast' : capabilityProfile === 'full' ? '🔬 Full' : '🤖 Auto'}
+                        </MenuToggle>
+                      )}
+                    >
+                      <SelectList>
+                        <SelectOption value="auto" description="Backend infers fast, balanced, or full based on your vision.">
+                          🤖 Auto
+                        </SelectOption>
+                        <SelectOption value="fast" description="Skip all research — jump straight to design and code. Best for simple or well-defined tasks.">
+                          ⚡ Fast
+                        </SelectOption>
+                        <SelectOption value="full" description="Full solutioning loop: research, architect, critique, then code. Best for complex or greenfield projects.">
+                          🔬 Full
+                        </SelectOption>
+                      </SelectList>
+                    </Select>
+
                     <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Plan Approval:</Label>
                     <Select
                       id="plan-review-select"
@@ -1245,46 +1286,7 @@ const Landing: React.FC = () => {
                   )}
                 </div>
 
-                {/* Per-job plan review toggle */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  marginTop: '0.75rem', flexWrap: 'wrap',
-                }}>
-                  <button
-                    type="button"
-                    onClick={() => setReviewPlanOverride(!effectiveAutoApprove ? null : false)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '0.4rem',
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      padding: '0.2rem 0.5rem', borderRadius: '6px',
-                      fontSize: '0.8rem', color: effectiveAutoApprove ? '#3E8635' : '#6A6E73',
-                      fontFamily: '"Red Hat Text", sans-serif',
-                    }}
-                    title={effectiveAutoApprove
-                      ? 'Auto-approve is ON — click to require plan review for this job'
-                      : 'Click to skip plan review for this job (auto-approve)'}
-                  >
-                    <span style={{
-                      display: 'inline-block', width: '12px', height: '12px',
-                      borderRadius: '50%',
-                      background: effectiveAutoApprove ? '#3E8635' : '#C7C7C7',
-                      flexShrink: 0,
-                    }} />
-                    {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
-                    {reviewPlanOverride !== null && (
-                      <span style={{ color: '#0066CC', fontSize: '0.7rem' }}>
-                        (overridden)
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setReviewPlanOverride(null); }}
-                          style={{ marginLeft: '0.25rem', border: 'none', background: 'none', cursor: 'pointer', color: '#0066CC', fontSize: '0.7rem' }}
-                        >
-                          reset
-                        </button>
-                      </span>
-                    )}
-                  </button>
-                </div>
+
               </div>
 
               {/* Example prompt pills */}

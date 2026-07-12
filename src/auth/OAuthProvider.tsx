@@ -31,7 +31,7 @@ const OIDC_AUTHORITY =
   runtimeEnv.VITE_OIDC_AUTHORITY ||
   import.meta.env.VITE_OIDC_AUTHORITY ||
   (import.meta.env.VITE_KEYCLOAK_URL && `${import.meta.env.VITE_KEYCLOAK_URL}/realms/${import.meta.env.VITE_KEYCLOAK_REALM}`) ||
-  "http://localhost:8180/realms/opl-crew";
+  "http://localhost:8380/realms/opl-crew";
 const OIDC_CLIENT_ID =
   runtimeEnv.VITE_OIDC_CLIENT_ID ||
   import.meta.env.VITE_OIDC_CLIENT_ID ||

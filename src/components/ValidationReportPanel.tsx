@@ -22,6 +22,7 @@ import {
   PendingIcon,
 } from '@patternfly/react-icons';
 import type { ValidationIssue, ValidationReport } from '../types';
+import { getJobValidation } from '../api/client';
 
 interface Props {
   jobId: string;
@@ -48,15 +49,7 @@ export const ValidationReportPanel: React.FC<Props> = ({ jobId }) => {
     let cancelled = false;
     const fetchReport = async () => {
       try {
-        const resp = await fetch(`/api/jobs/${jobId}/validation`);
-        if (!resp.ok) {
-          if (resp.status === 404) {
-            setReport(null);
-            return;
-          }
-          throw new Error(`HTTP ${resp.status}`);
-        }
-        const data: ValidationReport = await resp.json();
+        const data = await getJobValidation(jobId);
         if (!cancelled) setReport(data);
       } catch (e) {
         if (!cancelled) setError(String(e));

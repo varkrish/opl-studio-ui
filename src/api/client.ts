@@ -15,6 +15,7 @@ import type {
   SkillInfo,
   SkillSearchResult,
   PlanReviewData,
+  ValidationReport,
 } from '../types';
 import { activeToken } from '../auth/OAuthProvider';
 
@@ -73,6 +74,7 @@ export async function createJob(
   autoApprovePlan?: boolean,
   jiraIssue?: JiraIssue,
   targetRepoName?: string,
+  capabilityProfile?: 'fast' | 'full',
 ): Promise<{ job_id: string; status: string; documents: number; github_repos: number }> {
   const hasFiles = documents && documents.length > 0;
   const hasGithub = githubUrls && githubUrls.length > 0;
@@ -84,6 +86,7 @@ export async function createJob(
     if (teamId) formData.append('team_id', teamId);
     if (autoApprovePlan) formData.append('auto_approve_plan', 'true');
     if (targetRepoName) formData.append('target_repo_name', targetRepoName);
+    if (capabilityProfile) formData.append('capability_profile', capabilityProfile);
     if (jiraIssue) {
       formData.append('jira_issue_key', jiraIssue.key);
       formData.append('jira_issue_url', jiraIssue.url);
@@ -114,6 +117,7 @@ export async function createJob(
       team_id: teamId,
       auto_approve_plan: autoApprovePlan ?? false,
       ...(targetRepoName && { target_repo_name: targetRepoName }),
+      ...(capabilityProfile && { capability_profile: capabilityProfile }),
       ...(jiraIssue && {
         jira_issue_key: jiraIssue.key,
         jira_issue_url: jiraIssue.url,
@@ -399,6 +403,18 @@ export async function getRefinementHistory(jobId: string): Promise<Refinement[]>
     `/api/jobs/${jobId}/refinements`
   );
   return data.refinements;
+}
+
+export async function getJobValidation(jobId: string): Promise<ValidationReport | null> {
+  try {
+    const { data } = await api.get<ValidationReport>(`/api/jobs/${jobId}/validation`);
+    return data;
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 // ── Plan Review ─────────────────────────────────────────────────────────────
