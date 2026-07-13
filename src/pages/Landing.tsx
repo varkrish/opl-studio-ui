@@ -956,37 +956,35 @@ const Landing: React.FC = () => {
                 border: inputMode === 'jira' ? '1px solid rgba(0,102,204,0.3)' : '1px solid #E7E7E7',
                 overflow: 'visible',
               }}>
-                {/* Mode toggle tabs — only visible when Jira is connected */}
-                {jiraConnected && (
-                  <div style={{
-                    display: 'flex', borderBottom: '1px solid #E7E7E7',
-                    background: '#FAFAFA', borderRadius: '16px 16px 0 0',
-                  }}>
-                    {[
-                      { id: 'vision' as const, label: '✍️ Describe Vision' },
-                      { id: 'jira' as const, label: '🔵 Pick from Jira' },
-                    ].map((tab) => (
-                      <button
-                        key={tab.id}
-                        onClick={() => switchInputMode(tab.id)}
-                        style={{
-                          flex: 1, padding: '0.65rem 1rem', border: 'none', cursor: 'pointer',
-                          fontSize: '0.8125rem', fontWeight: 600,
-                          fontFamily: '"Red Hat Text", sans-serif',
-                          background: inputMode === tab.id ? 'white' : 'transparent',
-                          color: inputMode === tab.id ? (tab.id === 'jira' ? '#0066CC' : '#151515') : '#6A6E73',
-                          borderBottom: inputMode === tab.id
-                            ? `2px solid ${tab.id === 'jira' ? '#0066CC' : '#EE0000'}`
-                            : '2px solid transparent',
-                          transition: 'all 0.15s',
-                          borderRadius: tab.id === 'vision' ? '16px 0 0 0' : '0 16px 0 0',
-                        }}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {/* Mode toggle tabs — visible always so user knows it's there */}
+                <div style={{
+                  display: 'flex', borderBottom: '1px solid #E7E7E7',
+                  background: '#FAFAFA', borderRadius: '16px 16px 0 0',
+                }}>
+                  {[
+                    { id: 'vision' as const, label: '✍️ Describe Vision' },
+                    { id: 'jira' as const, label: '🔵 Pick from Jira' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => switchInputMode(tab.id)}
+                      style={{
+                        flex: 1, padding: '0.65rem 1rem', border: 'none', cursor: 'pointer',
+                        fontSize: '0.8125rem', fontWeight: 600,
+                        fontFamily: '"Red Hat Text", sans-serif',
+                        background: inputMode === tab.id ? 'white' : 'transparent',
+                        color: inputMode === tab.id ? (tab.id === 'jira' ? '#0066CC' : '#151515') : '#6A6E73',
+                        borderBottom: inputMode === tab.id
+                          ? `2px solid ${tab.id === 'jira' ? '#0066CC' : '#EE0000'}`
+                          : '2px solid transparent',
+                        transition: 'all 0.15s',
+                        borderRadius: tab.id === 'vision' ? '16px 0 0 0' : '0 16px 0 0',
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
                 <div style={{ padding: '1.25rem' }}>
                   {/* ── Vision mode ── */}
@@ -1011,7 +1009,27 @@ const Landing: React.FC = () => {
                   {/* ── Jira mode ── */}
                   {inputMode === 'jira' && (
                     <div>
-                      {selectedJiraIssue ? (
+                      {!jiraConnected ? (
+                        <div style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '2rem 1.5rem',
+                          textAlign: 'center',
+                        }}>
+                          <span style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🔵</span>
+                          <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#151515', marginBottom: '0.5rem' }}>
+                            Jira integration is not connected
+                          </h4>
+                          <p style={{ fontSize: '0.875rem', color: '#6A6E73', marginBottom: '1.25rem', maxWidth: '340px' }}>
+                            Connect your Atlassian Jira account in Settings to search and select user stories directly.
+                          </p>
+                          <Button variant="secondary" onClick={() => navigate('/settings')}>
+                            Configure Jira
+                          </Button>
+                        </div>
+                      ) : selectedJiraIssue ? (
                         /* Selected issue card */
                         <div style={{
                           background: 'rgba(0,102,204,0.04)', border: '1px solid rgba(0,102,204,0.2)',
