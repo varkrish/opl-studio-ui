@@ -43,12 +43,14 @@ import {
 } from '../api/client';
 import type { Job, ProgressMessage } from '../types';
 import type { JobToolStats } from '../api/client';
+import { canRetryFailedTasks } from '../utils/restart';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const jobStatusColor = (status: string): 'green' | 'red' | 'blue' | 'orange' | 'gold' | 'grey' => {
   switch (status) {
     case 'completed': return 'green';
+    case 'partially_completed': return 'orange';
     case 'running': return 'blue';
     case 'failed': return 'red';
     case 'cancelled': return 'grey';
@@ -139,6 +141,17 @@ const JobDetail: React.FC = () => {
       await loadData();
     } catch {
       setActionError('Restart failed. Please try again.');
+    }
+  };
+
+  const handleRetryFailed = async () => {
+    if (!jobId) return;
+    setActionError(null);
+    try {
+      await restartJob(jobId, { mode: 'retry_failed' });
+      await loadData();
+    } catch {
+      setActionError('Retry failed tasks could not be started. Please try again.');
     }
   };
 
@@ -465,6 +478,13 @@ const JobDetail: React.FC = () => {
               <FlexItem>
                 <Button variant="secondary" size="sm" onClick={handleRestart}>
                   Restart
+                </Button>
+              </FlexItem>
+            )}
+            {canRetryFailedTasks(currentStatus, (job as unknown as Record<string, string>).vision) && (
+              <FlexItem>
+                <Button variant="secondary" size="sm" onClick={handleRetryFailed}>
+                  Retry failed tasks
                 </Button>
               </FlexItem>
             )}

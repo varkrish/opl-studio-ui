@@ -65,6 +65,35 @@ export async function getJob(jobId: string): Promise<Job> {
   return data;
 }
 
+/** Solutioning path chosen at create time (Adaptive Stack Contract). */
+export type SolutioningPath = 'full' | 'adaptive' | 'fast';
+
+export interface CapabilityProfileOverride {
+  solutioning_path: SolutioningPath;
+  source: 'user';
+}
+
+/** Heuristic capability profile from POST /api/jobs/preview-capabilities. */
+export interface CapabilityProfilePreview {
+  delivery_surface?: string;
+  complexity?: string;
+  needs_server_runtime?: boolean;
+  needs_api?: boolean;
+  needs_persistence?: boolean;
+  needs_auth?: boolean;
+  explicit_technologies?: string[];
+  suggested_path?: 'fast' | 'full';
+  evidence?: string[];
+}
+
+export async function previewCapabilities(vision: string): Promise<CapabilityProfilePreview> {
+  const { data } = await api.post<CapabilityProfilePreview>(
+    '/api/jobs/preview-capabilities',
+    { vision },
+  );
+  return data;
+}
+
 export async function createJob(
   vision: string,
   documents?: File[],
@@ -74,10 +103,14 @@ export async function createJob(
   autoApprovePlan?: boolean,
   jiraIssue?: JiraIssue,
   targetRepoName?: string,
-  capabilityProfile?: 'fast' | 'full',
+  capabilityProfile?: CapabilityProfileOverride,
 ): Promise<{ job_id: string; status: string; documents: number; github_repos: number }> {
   const hasFiles = documents && documents.length > 0;
   const hasGithub = githubUrls && githubUrls.length > 0;
+  const profile: CapabilityProfileOverride = capabilityProfile ?? {
+    solutioning_path: 'full',
+    source: 'user',
+  };
 
   if (hasFiles || hasGithub) {
     const formData = new FormData();
@@ -86,7 +119,7 @@ export async function createJob(
     if (teamId) formData.append('team_id', teamId);
     if (autoApprovePlan) formData.append('auto_approve_plan', 'true');
     if (targetRepoName) formData.append('target_repo_name', targetRepoName);
-    if (capabilityProfile) formData.append('capability_profile', capabilityProfile);
+    formData.append('capability_profile', JSON.stringify(profile));
     if (jiraIssue) {
       formData.append('jira_issue_key', jiraIssue.key);
       formData.append('jira_issue_url', jiraIssue.url);
@@ -116,8 +149,8 @@ export async function createJob(
       backend,
       team_id: teamId,
       auto_approve_plan: autoApprovePlan ?? false,
+      capability_profile: profile,
       ...(targetRepoName && { target_repo_name: targetRepoName }),
-      ...(capabilityProfile && { capability_profile: capabilityProfile }),
       ...(jiraIssue && {
         jira_issue_key: jiraIssue.key,
         jira_issue_url: jiraIssue.url,
@@ -302,14 +335,23 @@ export async function cancelJob(jobId: string): Promise<{ status: string }> {
   return data;
 }
 
+export type RestartJobOptions = {
+  /** Resume from the last checkpoint phase */
+  resume?: boolean;
+  /** Retry only failed/skipped file tasks and failed feature tasks */
+  mode?: 'retry_failed';
+};
+
 export async function restartJob(
   jobId: string,
-  options?: { resume?: boolean }
-): Promise<{ status: string; job_type: string; job_id: string }> {
-  const body = options?.resume ? { resume: true } : undefined;
-  const { data } = await api.post<{ status: string; job_type: string; job_id: string }>(
+  options?: RestartJobOptions
+): Promise<{ status: string; job_type: string; job_id: string; mode?: string }> {
+  const body: Record<string, unknown> = {};
+  if (options?.resume) body.resume = true;
+  if (options?.mode === 'retry_failed') body.mode = 'retry_failed';
+  const { data } = await api.post<{ status: string; job_type: string; job_id: string; mode?: string }>(
     `/api/jobs/${jobId}/restart`,
-    body
+    Object.keys(body).length ? body : undefined
   );
   return data;
 }

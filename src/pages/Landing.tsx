@@ -11,6 +11,8 @@ import {
   Select,
   SelectList,
   SelectOption,
+  FormSelect,
+  FormSelectOption,
 } from '@patternfly/react-core';
 import {
   RocketIcon,
@@ -39,9 +41,10 @@ import {
   searchJiraIssues,
   getJiraConfig,
   getGithubConfig,
+  previewCapabilities,
 } from '../api/client';
 import type { BackendOption } from '../types';
-import type { JiraIssue } from '../api/client';
+import type { JiraIssue, SolutioningPath } from '../api/client';
 import BuildProgress from '../components/BuildProgress';
 import { useWorkflowPrefs } from '../hooks/useWorkflowPrefs';
 import { useAuth } from '../auth/OAuthProvider';
@@ -60,6 +63,12 @@ const ALLOWED_EXT = new Set([
 const MTA_REPORT_EXT = new Set(['json', 'csv', 'html', 'xml', 'yaml', 'yml', 'txt']);
 
 const GITHUB_URL_RE = /^https?:\/\/github\.com\/[\w.\-]+\/[\w.\-]+(\/.*)?$/;
+
+const CAPABILITY_HELPERS: Record<SolutioningPath, string> = {
+  full: 'Full: research stack options, critique the approach, then plan & build. Best for apps, APIs, and multi-tier systems.',
+  adaptive: 'Adaptive: system chooses Fast or Full from your vision (e.g. simple client page → Fast; named framework / API → Full).',
+  fast: 'Fast: skip stack research. Lock constraints from your vision, then plan & build as usual (including tech_stack.md). Best for simple pages, widgets, and single-file deliverables.',
+};
 
 function getFileIcon(name: string) {
   const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -117,13 +126,16 @@ const Landing: React.FC = () => {
   const [selectedBackend, setSelectedBackend] = useState('opl-ai-team');
   const [backendSelectOpen, setBackendSelectOpen] = useState(false);
 
+  // Adaptive stack contract — Capability path (default Full)
+  const [solutioningPath, setSolutioningPath] = useState<SolutioningPath>('full');
+  const [suggestedPath, setSuggestedPath] = useState<'fast' | 'full' | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Workflow prefs — controls per-job auto-approve override
   const { prefs } = useWorkflowPrefs();
   // per-job: true means skip review even if server plan_review is enabled
   const [reviewPlanOverride, setReviewPlanOverride] = useState<boolean | null>(null);
   const [reviewPlanSelectOpen, setReviewPlanSelectOpen] = useState(false);
-  const [capabilityProfile, setCapabilityProfile] = useState<'fast' | 'full' | 'auto'>('auto');
-  const [capabilitySelectOpen, setCapabilitySelectOpen] = useState(false);
   // resolved: null → follow global pref; true/false → explicit per-job choice
   const effectiveAutoApprove = reviewPlanOverride !== null
     ? reviewPlanOverride
@@ -158,6 +170,34 @@ const Landing: React.FC = () => {
         setBackends([{ name: 'opl-ai-team', display_name: 'OPL AI Team', available: true }]);
       });
   }, []);
+
+  // Optional: debounce preview-capabilities while typing a vision
+  useEffect(() => {
+    if (projectMode !== 'build' || inputMode !== 'vision') {
+      setSuggestedPath(null);
+      return;
+    }
+    const trimmed = vision.trim();
+    if (trimmed.length < 20) {
+      setSuggestedPath(null);
+      return;
+    }
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(() => {
+      previewCapabilities(trimmed)
+        .then((profile) => {
+          if (profile.suggested_path === 'fast' || profile.suggested_path === 'full') {
+            setSuggestedPath(profile.suggested_path);
+          }
+        })
+        .catch(() => {
+          /* preview is best-effort; ignore failures */
+        });
+    }, 600);
+    return () => {
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+    };
+  }, [vision, projectMode, inputMode]);
 
   // Check whether the user has Jira configured — wait for auth to finish loading
   useEffect(() => {
@@ -359,7 +399,7 @@ const Landing: React.FC = () => {
         effectiveAutoApprove,
         selectedJiraIssue ?? undefined,
         githubConnected ? (targetRepoName.trim() || undefined) : undefined,
-        capabilityProfile !== 'auto' ? (capabilityProfile as 'fast' | 'full') : undefined,
+        { solutioning_path: solutioningPath, source: 'user' },
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -1006,6 +1046,54 @@ const Landing: React.FC = () => {
                     />
                   )}
 
+                  {/* Capability path (Adaptive Stack Contract) */}
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <label
+                      htmlFor="capability-path"
+                      style={{
+                        display: 'block',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: '#151515',
+                        marginBottom: '0.3rem',
+                      }}
+                    >
+                      Capability
+                    </label>
+                    <FormSelect
+                      id="capability-path"
+                      value={solutioningPath}
+                      onChange={(_e, v) => setSolutioningPath(v as SolutioningPath)}
+                      aria-label="Capability"
+                      style={{
+                        maxWidth: '280px',
+                        fontSize: '0.875rem',
+                        border: '1px solid #D2D2D2',
+                        borderRadius: '8px',
+                      }}
+                    >
+                      <FormSelectOption value="full" label="Full" />
+                      <FormSelectOption value="adaptive" label="Adaptive" />
+                      <FormSelectOption value="fast" label="Fast" />
+                    </FormSelect>
+                    <p
+                      data-testid="capability-helper"
+                      style={{ fontSize: '0.75rem', color: '#6A6E73', marginTop: '0.35rem', lineHeight: 1.45 }}
+                    >
+                      {CAPABILITY_HELPERS[solutioningPath]}
+                    </p>
+                    {suggestedPath && solutioningPath === 'adaptive' && (
+                      <p style={{ fontSize: '0.75rem', color: '#0066CC', marginTop: '0.25rem' }}>
+                        Detected suggestion: {suggestedPath === 'fast' ? 'Fast' : 'Full'}
+                      </p>
+                    )}
+                    {suggestedPath && solutioningPath !== 'adaptive' && suggestedPath !== solutioningPath && (
+                      <p style={{ fontSize: '0.75rem', color: '#6A6E73', marginTop: '0.25rem' }}>
+                        Vision suggests {suggestedPath === 'fast' ? 'Fast' : 'Full'} — you can switch Capability if you prefer.
+                      </p>
+                    )}
+                  </div>
+
                   {/* ── Jira mode ── */}
                   {inputMode === 'jira' && (
                     <div>
@@ -1188,49 +1276,11 @@ const Landing: React.FC = () => {
                     </Button>
                   </div>
 
-                  {/* Per-job plan review toggle + capability profile */}
+                  {/* Per-job plan review toggle */}
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '0.75rem',
                     marginTop: '1rem', flexWrap: 'wrap',
                   }}>
-                    <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Capability:</Label>
-                    <Select
-                      id="capability-profile-select"
-                      isOpen={capabilitySelectOpen}
-                      selected={capabilityProfile}
-                      onSelect={(_e, val) => {
-                        setCapabilityProfile(val as 'fast' | 'full' | 'auto');
-                        setCapabilitySelectOpen(false);
-                      }}
-                      onOpenChange={(isOpen) => setCapabilitySelectOpen(isOpen)}
-                      toggle={(toggleRef) => (
-                        <MenuToggle
-                          ref={toggleRef}
-                          onClick={() => setCapabilitySelectOpen(!capabilitySelectOpen)}
-                          isExpanded={capabilitySelectOpen}
-                          style={{
-                            backgroundColor: 'white', border: '1px solid #D2D2D2',
-                            borderRadius: '8px', fontSize: '0.875rem',
-                            minWidth: '190px', color: '#151515',
-                          }}
-                        >
-                          {capabilityProfile === 'fast' ? '⚡ Fast' : capabilityProfile === 'full' ? '🔬 Full' : '🤖 Auto'}
-                        </MenuToggle>
-                      )}
-                    >
-                      <SelectList>
-                        <SelectOption value="auto" description="Backend infers fast, balanced, or full based on your vision.">
-                          🤖 Auto
-                        </SelectOption>
-                        <SelectOption value="fast" description="Skip all research — jump straight to design and code. Best for simple or well-defined tasks.">
-                          ⚡ Fast
-                        </SelectOption>
-                        <SelectOption value="full" description="Full solutioning loop: research, architect, critique, then code. Best for complex or greenfield projects.">
-                          🔬 Full
-                        </SelectOption>
-                      </SelectList>
-                    </Select>
-
                     <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Plan Approval:</Label>
                     <Select
                       id="plan-review-select"

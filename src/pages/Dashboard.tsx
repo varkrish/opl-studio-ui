@@ -46,6 +46,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { usePolling } from '../hooks/usePolling';
 import { getStats, getJobs, getHealth, getJobProgress, restartJob, cancelJob } from '../api/client';
+import { canRetryFailedTasks } from '../utils/restart';
 import JobSearchSelect from '../components/JobSearchSelect';
 import type { Stats, JobSummary, HealthCheck, ProgressMessage } from '../types';
 
@@ -680,6 +681,22 @@ const Dashboard: React.FC = () => {
                                   }}
                                 >
                                   Resume from where it left off
+                                </DropdownItem>
+                              )}
+                              {canRetryFailedTasks(job.status, job.vision) && (
+                                <DropdownItem
+                                  key="retry-failed-build"
+                                  onClick={async () => {
+                                    try {
+                                      await restartJob(job.id, { mode: 'retry_failed' });
+                                      window.location.reload();
+                                    } catch (err) {
+                                      console.error('Retry failed tasks failed:', err);
+                                    }
+                                  }}
+                                  style={{ color: '#C9190B' }}
+                                >
+                                  Retry failed tasks
                                 </DropdownItem>
                               )}
                             </>

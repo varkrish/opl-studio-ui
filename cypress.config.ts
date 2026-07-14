@@ -5,6 +5,12 @@ export default defineConfig({
     devServer: {
       framework: 'react',
       bundler: 'vite',
+      viteConfig: {
+        // Landing mounts require OAuthProvider; disable auth so mock user is used.
+        define: {
+          'import.meta.env.VITE_AUTH_ENABLED': JSON.stringify('false'),
+        },
+      },
     },
     indexHtmlFile: 'index.html',
     specPattern: 'cypress/component/**/*.cy.{ts,tsx}',

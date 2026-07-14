@@ -14,6 +14,7 @@ import {
   OutlinedClockIcon,
 } from '@patternfly/react-icons';
 import { getJob, getJobFiles, restartJob } from '../api/client';
+import { canRetryFailedTasks } from '../utils/restart';
 import type { Job, WorkspaceFile, ProgressMessage } from '../types';
 import { ValidationReportPanel } from './ValidationReportPanel';
 import PlanReviewPanel from './PlanReviewPanel';
@@ -67,7 +68,7 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
   const logEndRef = useRef<HTMLDivElement>(null);
   const prevMsgCount = useRef(0);
 
-  const isTerminal = job?.status === 'completed' || job?.status === 'failed' || job?.status === 'cancelled';
+  const isTerminal = job?.status === 'completed' || job?.status === 'partially_completed' || job?.status === 'failed' || job?.status === 'cancelled';
   const isPendingReview = job?.status === 'pending_review' || job?.status === 'pending_approval' || job?.status === 'pending_solution_review';
   const isMta = job?.vision?.startsWith('[MTA') ?? false;
   const isImport = job?.vision?.startsWith('[Import]') ?? false;
@@ -329,6 +330,48 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
     }
   };
 
+  const handleRetryFailed = async () => {
+    if (!job) return;
+    try {
+      await restartJob(job.id, { mode: 'retry_failed' });
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to retry failed tasks:', err);
+    }
+  };
+
+  const renderPartiallyCompleted = () => (
+    <div style={{
+      textAlign: 'center', padding: '1.5rem',
+      background: '#FFF8E1', borderRadius: '12px',
+      border: '1px solid #F0AB00', marginTop: '1rem',
+    }}>
+      <OutlinedClockIcon style={{ fontSize: '2.5rem', color: '#F0AB00', marginBottom: '0.75rem' }} />
+      <div style={{
+        fontSize: '1.125rem', fontWeight: 700, color: '#151515',
+        fontFamily: '"Red Hat Display", sans-serif', marginBottom: '0.5rem',
+      }}>
+        Build Partially Completed
+      </div>
+      <p style={{ fontSize: '0.8125rem', color: '#6A6E73', marginBottom: '0.5rem' }}>
+        {job?.error || 'Some tasks did not finish. Retry failed tasks to continue without a full rebuild.'}
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+        <Button variant="primary" onClick={handleRetryFailed}
+          style={{ backgroundColor: '#F0AB00', border: 'none', color: '#151515' }}>
+          Retry failed tasks
+        </Button>
+        <Button variant="secondary" onClick={handleRestart}>
+          Restart from scratch
+        </Button>
+        <Button variant="secondary" onClick={() => navigate(`/files?job=${jobId}`)}
+          icon={<CodeIcon />}>
+          View Files
+        </Button>
+      </div>
+    </div>
+  );
+
   const renderFailed = () => (
     <div style={{
       textAlign: 'center', padding: '1.5rem',
@@ -346,7 +389,13 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
         {job?.error || 'An unexpected error occurred'}
       </p>
       <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-        <Button variant="primary" onClick={handleRestart}>
+        {canRetryFailedTasks(job?.status ?? '', job?.vision) && (
+          <Button variant="primary" onClick={handleRetryFailed}
+            style={{ backgroundColor: '#C9190B', border: 'none' }}>
+            Retry failed tasks
+          </Button>
+        )}
+        <Button variant={canRetryFailedTasks(job?.status ?? '', job?.vision) ? 'secondary' : 'primary'} onClick={handleRestart}>
           Restart Job
         </Button>
         {!isMta && (
@@ -359,7 +408,7 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
         </Button>
         {isMta && (
           <>
-            <Button variant="link" onClick={handleRestart}
+            <Button variant="link" onClick={handleRetryFailed}
               style={{ color: '#C9190B' }}>
               Retry failed tasks
             </Button>
@@ -421,7 +470,7 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
           title=""
           size="sm"
           style={{ marginBottom: '1.25rem' }}
-          variant={job?.status === 'failed' ? 'danger' : job?.status === 'completed' ? 'success' : undefined}
+          variant={job?.status === 'failed' ? 'danger' : (job?.status === 'completed' || job?.status === 'partially_completed') ? 'success' : undefined}
         />
       )}
 
@@ -462,10 +511,11 @@ const BuildProgress: React.FC<Props> = ({ jobId, vision }) => {
 
       {/* Terminal states */}
       {job?.status === 'completed' && renderCompleted()}
+      {job?.status === 'partially_completed' && renderPartiallyCompleted()}
       {(job?.status === 'failed' || job?.status === 'cancelled') && renderFailed()}
 
       {/* Validation report (shown when job is done) */}
-      {job && ['completed', 'failed', 'validation_failed'].includes(job.status) && (
+      {job && ['completed', 'partially_completed', 'failed', 'validation_failed'].includes(job.status) && (
         <ValidationReportPanel jobId={jobId} />
       )}
 
