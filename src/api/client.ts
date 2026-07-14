@@ -107,10 +107,6 @@ export async function createJob(
 ): Promise<{ job_id: string; status: string; documents: number; github_repos: number }> {
   const hasFiles = documents && documents.length > 0;
   const hasGithub = githubUrls && githubUrls.length > 0;
-  const profile: CapabilityProfileOverride = capabilityProfile ?? {
-    solutioning_path: 'full',
-    source: 'user',
-  };
 
   if (hasFiles || hasGithub) {
     const formData = new FormData();
@@ -119,7 +115,9 @@ export async function createJob(
     if (teamId) formData.append('team_id', teamId);
     if (autoApprovePlan) formData.append('auto_approve_plan', 'true');
     if (targetRepoName) formData.append('target_repo_name', targetRepoName);
-    formData.append('capability_profile', JSON.stringify(profile));
+    if (capabilityProfile) {
+      formData.append('capability_profile', JSON.stringify(capabilityProfile));
+    }
     if (jiraIssue) {
       formData.append('jira_issue_key', jiraIssue.key);
       formData.append('jira_issue_url', jiraIssue.url);
@@ -149,7 +147,7 @@ export async function createJob(
       backend,
       team_id: teamId,
       auto_approve_plan: autoApprovePlan ?? false,
-      capability_profile: profile,
+      ...(capabilityProfile && { capability_profile: capabilityProfile }),
       ...(targetRepoName && { target_repo_name: targetRepoName }),
       ...(jiraIssue && {
         jira_issue_key: jiraIssue.key,

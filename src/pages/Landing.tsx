@@ -66,7 +66,7 @@ const GITHUB_URL_RE = /^https?:\/\/github\.com\/[\w.\-]+\/[\w.\-]+(\/.*)?$/;
 
 const CAPABILITY_HELPERS: Record<SolutioningPath, string> = {
   full: 'Full: research stack options, critique the approach, then plan & build. Best for apps, APIs, and multi-tier systems.',
-  adaptive: 'Adaptive: system chooses Fast or Full from your vision (e.g. simple client page → Fast; named framework / API → Full).',
+  adaptive: 'Auto: backend infers Fast or Full from your vision (e.g. simple client page → Fast; named framework / API → Full).',
   fast: 'Fast: skip stack research. Lock constraints from your vision, then plan & build as usual (including tech_stack.md). Best for simple pages, widgets, and single-file deliverables.',
 };
 
@@ -126,8 +126,8 @@ const Landing: React.FC = () => {
   const [selectedBackend, setSelectedBackend] = useState('opl-ai-team');
   const [backendSelectOpen, setBackendSelectOpen] = useState(false);
 
-  // Adaptive stack contract — Capability path (default Full)
-  const [solutioningPath, setSolutioningPath] = useState<SolutioningPath>('full');
+  // Adaptive stack contract — Capability path (default Auto / adaptive infer)
+  const [solutioningPath, setSolutioningPath] = useState<SolutioningPath>('adaptive');
   const [suggestedPath, setSuggestedPath] = useState<'fast' | 'full' | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -399,7 +399,9 @@ const Landing: React.FC = () => {
         effectiveAutoApprove,
         selectedJiraIssue ?? undefined,
         githubConnected ? (targetRepoName.trim() || undefined) : undefined,
-        { solutioning_path: solutioningPath, source: 'user' },
+        solutioningPath === 'adaptive'
+          ? undefined
+          : { solutioning_path: solutioningPath, source: 'user' },
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -1072,9 +1074,9 @@ const Landing: React.FC = () => {
                         borderRadius: '8px',
                       }}
                     >
-                      <FormSelectOption value="full" label="Full" />
-                      <FormSelectOption value="adaptive" label="Adaptive" />
+                      <FormSelectOption value="adaptive" label="Auto" />
                       <FormSelectOption value="fast" label="Fast" />
+                      <FormSelectOption value="full" label="Full" />
                     </FormSelect>
                     <p
                       data-testid="capability-helper"

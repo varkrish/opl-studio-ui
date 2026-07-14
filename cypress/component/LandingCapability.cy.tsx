@@ -13,8 +13,8 @@ import '@patternfly/react-core/dist/styles/base.css';
 
 const HELPER_FULL =
   'Full: research stack options, critique the approach, then plan & build. Best for apps, APIs, and multi-tier systems.';
-const HELPER_ADAPTIVE =
-  'Adaptive: system chooses Fast or Full from your vision (e.g. simple client page → Fast; named framework / API → Full).';
+const HELPER_AUTO =
+  'Auto: backend infers Fast or Full from your vision (e.g. simple client page → Fast; named framework / API → Full).';
 const HELPER_FAST =
   'Fast: skip stack research. Lock constraints from your vision, then plan & build as usual (including tech_stack.md). Best for simple pages, widgets, and single-file deliverables.';
 
@@ -79,22 +79,22 @@ describe('Landing — Capability dropdown', () => {
     cy.contains('button', 'Build New Project').should('be.visible');
   });
 
-  it('shows Capability dropdown with Full, Adaptive, and Fast options', () => {
+  it('shows Capability dropdown with Auto, Fast, and Full options', () => {
     cy.get('[aria-label="Capability"]').scrollIntoView().should('exist');
     cy.get('[aria-label="Capability"] option').then(($opts) => {
       const labels = [...$opts].map((o) => o.textContent?.trim());
-      expect(labels).to.include.members(['Full', 'Adaptive', 'Fast']);
+      expect(labels).to.include.members(['Auto', 'Fast', 'Full']);
     });
   });
 
-  it('defaults Capability to Full and shows Full helper text', () => {
-    cy.get('[aria-label="Capability"]').scrollIntoView().should('have.value', 'full');
-    cy.contains(HELPER_FULL).scrollIntoView().should('exist');
+  it('defaults Capability to Auto and shows Auto helper text', () => {
+    cy.get('[aria-label="Capability"]').scrollIntoView().should('have.value', 'adaptive');
+    cy.contains(HELPER_AUTO).scrollIntoView().should('exist');
   });
 
-  it('shows Adaptive helper text when Adaptive is selected', () => {
+  it('shows Auto helper text when Auto is selected', () => {
     cy.get('[aria-label="Capability"]').select('adaptive');
-    cy.contains(HELPER_ADAPTIVE).should('be.visible');
+    cy.contains(HELPER_AUTO).should('be.visible');
   });
 
   it('shows Fast helper text when Fast is selected', () => {
@@ -124,13 +124,13 @@ describe('Landing — Capability dropdown', () => {
     });
   });
 
-  it('POST /api/jobs body includes capability_profile.solutioning_path full by default', () => {
+  it('omits capability_profile from POST /api/jobs when Auto is selected (default)', () => {
     cy.intercept('POST', '/api/jobs', {
       statusCode: 201,
-      body: { job_id: 'cap-job-full', status: 'queued', documents: 0, github_repos: 0 },
+      body: { job_id: 'cap-job-auto', status: 'queued', documents: 0, github_repos: 0 },
     }).as('createJob');
 
-    cy.get('[aria-label="Capability"]').should('have.value', 'full');
+    cy.get('[aria-label="Capability"]').should('have.value', 'adaptive');
     cy.get('textarea[aria-label="Project description"]').type(
       'Build a Frappe invoicing application',
     );
@@ -138,11 +138,7 @@ describe('Landing — Capability dropdown', () => {
 
     cy.wait('@createJob').then((interception) => {
       const body = interception.request.body;
-      expect(body).to.have.property('capability_profile');
-      expect(body.capability_profile).to.deep.include({
-        solutioning_path: 'full',
-        source: 'user',
-      });
+      expect(body).not.to.have.property('capability_profile');
     });
   });
 });
