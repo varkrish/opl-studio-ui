@@ -533,6 +533,15 @@ export async function downloadJobWorkspace(jobId: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+/** Push the job workspace to GitHub on demand. Returns the GitHub repo URL on success. */
+export async function pushJobToGit(jobId: string, repoName?: string): Promise<{ repo_url: string }> {
+  const { data } = await api.post<{ status: string; repo_url: string }>(
+    `/api/jobs/${jobId}/push`,
+    repoName ? { repo_name: repoName } : {},
+  );
+  return data;
+}
+
 // ── Workspace Files ─────────────────────────────────────────────────────────
 export async function getWorkspaceFiles(jobId?: string): Promise<WorkspaceFile[]> {
   const params = jobId ? { job_id: jobId } : {};

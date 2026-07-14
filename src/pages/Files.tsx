@@ -30,7 +30,9 @@ import {
   CubeIcon,
   DownloadIcon,
   SyncAltIcon,
+  GithubIcon,
 } from '@patternfly/react-icons';
+import { TextInput, FormGroup, Form } from '@patternfly/react-core';
 import { useSearchParams, Link } from 'react-router-dom';
 import Editor, { DiffEditor, type Monaco } from '@monaco-editor/react';
 import { usePolling } from '../hooks/usePolling';
@@ -40,6 +42,7 @@ import {
   getFileContent,
   getPreviewUrl,
   downloadJobWorkspace,
+  pushJobToGit,
   getRefinementChanges,
   getRefinementCompare,
   type MigrationChanges,
@@ -136,6 +139,11 @@ const Files: React.FC = () => {
   // isSelectOpen removed - handled by JobSearchSelect
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [pushModalOpen, setPushModalOpen] = useState(false);
+  const [pushRepoName, setPushRepoName] = useState('');
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<{ url: string } | null>(null);
+  const [pushError, setPushError] = useState<string | null>(null);
   const lastAppliedFileParam = useRef<string | null>(null);
   const [refinementChanges, setRefinementChanges] = useState<MigrationChanges | null>(null);
   const [refChangesExpanded, setRefChangesExpanded] = useState(true);
@@ -406,6 +414,23 @@ const Files: React.FC = () => {
                 }}
               >
                 {downloading ? 'Downloading...' : 'Download project'}
+              </Button>
+            )}
+            {selectedJobId && (
+              <Button
+                variant="primary"
+                icon={<GithubIcon />}
+                iconPosition="start"
+                data-testid="files-push-to-git"
+                isDisabled={pushing}
+                onClick={() => {
+                  setPushRepoName('');
+                  setPushResult(null);
+                  setPushError(null);
+                  setPushModalOpen(true);
+                }}
+              >
+                Push to Git
               </Button>
             )}
           </Flex>
@@ -751,6 +776,88 @@ const Files: React.FC = () => {
               }}
             />
           </div>
+        )}
+      </Modal>
+
+      {/* ── Push to Git modal ─────────────────────────────────────────── */}
+      <Modal
+        id="push-to-git-modal"
+        variant={ModalVariant.small}
+        title="Push project to GitHub"
+        isOpen={pushModalOpen}
+        onClose={() => setPushModalOpen(false)}
+        actions={
+          pushResult
+            ? [
+                <Button key="close" variant="primary" onClick={() => setPushModalOpen(false)}>
+                  Close
+                </Button>,
+              ]
+            : [
+                <Button
+                  key="push"
+                  id="push-to-git-confirm"
+                  variant="primary"
+                  isDisabled={pushing || !pushRepoName.trim()}
+                  isLoading={pushing}
+                  onClick={async () => {
+                    if (!selectedJobId) return;
+                    setPushing(true);
+                    setPushError(null);
+                    try {
+                      const result = await pushJobToGit(selectedJobId, pushRepoName.trim() || undefined);
+                      setPushResult({ url: result.repo_url });
+                    } catch (e: unknown) {
+                      const errMsg =
+                        e && typeof e === 'object' && 'response' in e
+                          ? ((e as { response?: { data?: { error?: string } } }).response?.data?.error ?? 'Push failed.')
+                          : 'Push failed.';
+                      setPushError(errMsg);
+                    } finally {
+                      setPushing(false);
+                    }
+                  }}
+                >
+                  {pushing ? 'Pushing...' : 'Push'}
+                </Button>,
+                <Button key="cancel" variant="link" onClick={() => setPushModalOpen(false)}>
+                  Cancel
+                </Button>,
+              ]
+        }
+      >
+        {pushResult ? (
+          <Alert variant="success" isInline title="Pushed successfully!">
+            Repository:{' '}
+            <a href={pushResult.url} target="_blank" rel="noopener noreferrer">
+              {pushResult.url}
+            </a>
+          </Alert>
+        ) : (
+          <Form>
+            {pushError && (
+              <Alert variant="danger" isInline title={pushError} style={{ marginBottom: '1rem' }} />
+            )}
+            <FormGroup
+              label="GitHub repository name"
+              fieldId="push-repo-name"
+              helperText="Leave the organisation prefix out — e.g. my-sandbox-api"
+              isRequired
+            >
+              <TextInput
+                id="push-repo-name"
+                value={pushRepoName}
+                onChange={(_e, v) => setPushRepoName(v)}
+                placeholder="e.g. my-sandbox-api"
+                autoFocus
+              />
+            </FormGroup>
+            <p style={{ color: '#6A6E73', fontSize: '0.875rem' }}>
+              The project files will be committed and pushed to a new private GitHub repository under your
+              configured account. Make sure a GitHub token is set in{' '}
+              <strong>Settings → API Configuration</strong>.
+            </p>
+          </Form>
         )}
       </Modal>
     </>
