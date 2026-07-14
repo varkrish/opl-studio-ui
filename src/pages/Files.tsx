@@ -21,6 +21,9 @@ import {
   Label,
   Modal,
   ModalVariant,
+  Form,
+  FormGroup,
+  TextInput,
 } from '@patternfly/react-core';
 import {
   FolderIcon,
@@ -32,7 +35,7 @@ import {
   SyncAltIcon,
   GithubIcon,
 } from '@patternfly/react-icons';
-import { TextInput, FormGroup, Form } from '@patternfly/react-core';
+
 import { useSearchParams, Link } from 'react-router-dom';
 import Editor, { DiffEditor, type Monaco } from '@monaco-editor/react';
 import { usePolling } from '../hooks/usePolling';
@@ -841,7 +844,6 @@ const Files: React.FC = () => {
             <FormGroup
               label="GitHub repository name"
               fieldId="push-repo-name"
-              helperText="Leave the organisation prefix out — e.g. my-sandbox-api"
               isRequired
             >
               <TextInput
@@ -851,6 +853,9 @@ const Files: React.FC = () => {
                 placeholder="e.g. my-sandbox-api"
                 autoFocus
               />
+              <p style={{ color: '#6A6E73', fontSize: '0.8125rem', marginTop: '0.25rem' }}>
+                Leave the organisation prefix out — e.g. my-sandbox-api
+              </p>
             </FormGroup>
             <p style={{ color: '#6A6E73', fontSize: '0.875rem' }}>
               The project files will be committed and pushed to a new private GitHub repository under your
