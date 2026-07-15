@@ -399,9 +399,8 @@ const Landing: React.FC = () => {
         effectiveAutoApprove,
         selectedJiraIssue ?? undefined,
         githubConnected ? (targetRepoName.trim() || undefined) : undefined,
-        solutioningPath === 'adaptive'
-          ? undefined
-          : { solutioning_path: solutioningPath, source: 'user' },
+        // Always send an explicit profile so Auto vs Fast vs Full is visible in job metadata.
+        { solutioning_path: solutioningPath, source: 'user' },
       );
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
@@ -1278,12 +1277,12 @@ const Landing: React.FC = () => {
                     </Button>
                   </div>
 
-                  {/* Per-job plan review toggle */}
+                  {/* Per-job review gate toggle (plan + solution) */}
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '0.75rem',
                     marginTop: '1rem', flexWrap: 'wrap',
                   }}>
-                    <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Plan Approval:</Label>
+                    <Label style={{ background: 'transparent', padding: 0, color: '#151515', fontWeight: 600 }}>Approvals:</Label>
                     <Select
                       id="plan-review-select"
                       isOpen={reviewPlanSelectOpen}
@@ -1304,16 +1303,16 @@ const Landing: React.FC = () => {
                             minWidth: '240px', color: '#151515',
                           }}
                         >
-                          {effectiveAutoApprove ? '⚡ Auto-approve plan' : '🔍 Review plan before coding'}
+                          {effectiveAutoApprove ? '⚡ Auto-approve reviews' : '🔍 Review before coding'}
                         </MenuToggle>
                       )}
                     >
                       <SelectList>
-                        <SelectOption value="review" description="Job will pause for you to review and approve the plan before generating code.">
-                          🔍 Review plan before coding
+                        <SelectOption value="review" description="Pause for solution and plan approval before generating code.">
+                          🔍 Review before coding
                         </SelectOption>
-                        <SelectOption value="auto" description="Job will automatically generate code based on the plan without waiting for approval.">
-                          ⚡ Auto-approve plan
+                        <SelectOption value="auto" description="Skip solution and plan review gates — continue straight to build.">
+                          ⚡ Auto-approve reviews
                         </SelectOption>
                       </SelectList>
                     </Select>
