@@ -816,10 +816,14 @@ const Files: React.FC = () => {
                       const result = await pushJobToGit(selectedJobId, pushRepoName.trim() || undefined);
                       setPushResult({ url: result.repo_url });
                     } catch (e: unknown) {
-                      const errMsg =
-                        e && typeof e === 'object' && 'response' in e
-                          ? ((e as { response?: { data?: { error?: string } } }).response?.data?.error ?? 'Push failed.')
-                          : 'Push failed.';
+                      const errMsg = (() => {
+                        if (!e || typeof e !== 'object' || !('response' in e)) return 'Push failed.';
+                        const data = (e as { response?: { data?: { error?: string; detail?: string } } }).response?.data;
+                        if (!data) return 'Push failed.';
+                        if (typeof data.detail === 'string' && data.detail.trim()) return data.detail;
+                        if (typeof data.error === 'string' && data.error.trim()) return data.error;
+                        return 'Push failed.';
+                      })();
                       setPushError(errMsg);
                     } finally {
                       setPushing(false);
@@ -836,7 +840,7 @@ const Files: React.FC = () => {
       >
         {pushResult ? (
           <Alert variant="success" isInline title="Pushed successfully!">
-            Repository:{' '}
+            Private repository (visible when signed into GitHub as the account from Settings → GitHub):{' '}
             <a href={pushResult.url} target="_blank" rel="noopener noreferrer">
               {pushResult.url}
             </a>
