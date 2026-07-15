@@ -2,15 +2,24 @@
 
 All notable changes to OPL Studio UI are documented here.
 
-## [Unreleased] — 2026-06-30
+## [Unreleased]
+
+## [2.5.0] - 2026-07-16
+
+### Configurable workflows
+- Settings → Workflow for plan review, solutioning, and auto-approve (syncs via `/api/workflow/config`)
+- Landing always sends capability profile; Approvals labeling covers plan + solution auto-approve
+
+### Fixed
+- Files **Push to Git** toolbar visibility and private-repo success copy
+- PatternFly FormGroup helperText typing
 
 ### Added
+- Settings → GitHub token for solutioning research
+- Plan review `solution_spec.md` tab when solutioning ran
 
-- **Settings → Workflow** — configure plan review gate, solutioning loop (max passes, GitHub search limit), and auto-approve plans from the UI; preferences sync to `POST /api/workflow/config` (no `config.yaml` edit required).
-- **Settings → GitHub** — connect a personal access token for solutioning research and repo search.
-- **Plan review** — `solution_spec.md` tab in plan review when the solutioning loop ran.
+## [2.4.0] - 2026-07-13
 
-### Changed
-
-- **`useWorkflowPrefs`** — loads and saves workflow settings via the backend API; localStorage used as a read-through cache for Landing and PlanReview.
-- **App startup** — prefetches workflow config from the API on mount.
+### Added
+- Capability profile dropdown on job create (Auto / Fast / Full)
+- Validation report panel via authenticated API client
