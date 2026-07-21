@@ -41,6 +41,8 @@ import {
   searchJiraIssues,
   getJiraConfig,
   getGithubConfig,
+  getLlmStatus,
+  formatJobCreateError,
   previewCapabilities,
 } from '../api/client';
 import type { BackendOption } from '../types';
@@ -157,6 +159,10 @@ const Landing: React.FC = () => {
   const [githubConnected, setGithubConnected] = useState(false);
   const [targetRepoName, setTargetRepoName] = useState('');
 
+  // LLM readiness — BYOK or server fallback required before creating jobs
+  const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
+  const [llmHint, setLlmHint] = useState<string | null>(null);
+
   // Build state — when set, we switch to split view
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [submittedVision, setSubmittedVision] = useState('');
@@ -170,6 +176,22 @@ const Landing: React.FC = () => {
         setBackends([{ name: 'opl-ai-team', display_name: 'OPL AI Team', available: true }]);
       });
   }, []);
+
+  // Check LLM credentials (BYOK or server) — wait for auth so the status is user-scoped
+  useEffect(() => {
+    if (authLoading) return;
+    getLlmStatus()
+      .then((s) => {
+        setLlmConfigured(s.configured);
+        setLlmHint(s.hint ?? null);
+      })
+      .catch(() => {
+        // Fail open on status fetch errors so a transient API blip doesn't block demos;
+        // create-job still enforces the gate server-side.
+        setLlmConfigured(true);
+        setLlmHint(null);
+      });
+  }, [authLoading]);
 
   // Optional: debounce preview-capabilities while typing a vision
   useEffect(() => {
@@ -384,8 +406,14 @@ const Landing: React.FC = () => {
     handleSourceArchive(e.dataTransfer.files);
   }, [handleSourceArchive]);
 
+  const llmReady = llmConfigured !== false;
+
   /* ── Submit ─────────────────────────────────────────────────────────────── */
   const handleCreateProject = async () => {
+    if (!llmReady) {
+      setError('No LLM API key configured. Go to Settings → API Configuration to add a key.');
+      return;
+    }
     if (!vision.trim()) { setError('Please describe your project vision'); return; }
     setCreating(true);
     setError(null);
@@ -405,7 +433,7 @@ const Landing: React.FC = () => {
       setSubmittedVision(vision);
       setActiveJobId(result.job_id);
     } catch (err) {
-      setError('Failed to create project. Please try again.');
+      setError(formatJobCreateError(err));
       console.error('Error creating job:', err);
     } finally {
       setCreating(false);
@@ -417,9 +445,13 @@ const Landing: React.FC = () => {
     hasReport: mtaReportFiles.length > 0,
     hasSource: sourceArchive !== null || githubUrls.length > 0,
   };
-  const canSubmitMigration = migrationReady.hasReport && migrationReady.hasSource && !creating;
+  const canSubmitMigration = migrationReady.hasReport && migrationReady.hasSource && !creating && llmReady;
 
   const handleCreateMigrationProject = async () => {
+    if (!llmReady) {
+      setError('No LLM API key configured. Go to Settings → API Configuration to add a key.');
+      return;
+    }
     // Double-check readiness — belt and suspenders
     if (!migrationReady.hasReport) {
       setError('Step 1 incomplete: Please upload at least one MTA report file (JSON, CSV, HTML, XML, YAML, or TXT).');
@@ -500,8 +532,7 @@ const Landing: React.FC = () => {
         }
       }, 1500);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Failed to create migration project: ${msg}. Please try again.`);
+      setError(formatJobCreateError(err, 'Failed to create migration project. Please try again.'));
       console.error('Error creating migration:', err);
     } finally {
       setCreating(false);
@@ -509,6 +540,10 @@ const Landing: React.FC = () => {
   };
 
   const handleCreateRefactorProject = async () => {
+    if (!llmReady) {
+      setError('No LLM API key configured. Go to Settings → API Configuration to add a key.');
+      return;
+    }
     if (!targetStack.trim()) { setError('Please specify the target stack'); return; }
     if (!sourceArchive && githubUrls.length === 0) {
       setError('Please upload source code or add a GitHub repo');
@@ -542,14 +577,17 @@ const Landing: React.FC = () => {
       }, 1500);
 
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Failed to create refactor project: ${msg}`);
+      setError(formatJobCreateError(err, 'Failed to create refactor project.'));
     } finally {
       setCreating(false);
     }
   };
 
   const handleCreateImportProject = async () => {
+    if (!llmReady) {
+      setError('No LLM API key configured. Go to Settings → API Configuration to add a key.');
+      return;
+    }
     if (!sourceArchive && githubUrls.length === 0) {
       setError('Please upload a ZIP of your project or add a GitHub repo');
       return;
@@ -584,8 +622,7 @@ const Landing: React.FC = () => {
         }
       }, 1500);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Failed to create import project: ${msg}`);
+      setError(formatJobCreateError(err, 'Failed to create import project.'));
     } finally {
       setCreating(false);
     }
@@ -985,6 +1022,27 @@ const Landing: React.FC = () => {
               actionClose={<Button variant="plain" onClick={() => setError(null)}>×</Button>} />
           )}
 
+          {llmConfigured === false && (
+            <Alert
+              variant="warning"
+              title="LLM API key required"
+              style={{ marginBottom: '1rem' }}
+              isInline
+            >
+              <div>
+                {llmHint || 'Save a key in Settings, or set the server llm.api_key / LLM_API_KEY, before starting a job.'}
+              </div>
+              <Button
+                variant="link"
+                isInline
+                onClick={() => navigate('/settings')}
+                style={{ marginTop: '0.35rem', paddingLeft: 0 }}
+              >
+                Open Settings → API Configuration
+              </Button>
+            </Alert>
+          )}
+
           {/* ═══════════════════════════════════════════════════════════════ */}
           {/* BUILD NEW PROJECT MODE                                        */}
           {/* ═══════════════════════════════════════════════════════════════ */}
@@ -1266,7 +1324,11 @@ const Landing: React.FC = () => {
                     </Select>
                     <Button variant="primary" onClick={handleCreateProject}
                       isLoading={creating}
-                      isDisabled={creating || (inputMode === 'vision' ? !vision.trim() : !selectedJiraIssue)}
+                      isDisabled={
+                        creating
+                        || !llmReady
+                        || (inputMode === 'vision' ? !vision.trim() : !selectedJiraIssue)
+                      }
                       style={{
                         backgroundColor: inputMode === 'jira' ? '#0066CC' : '#EE0000',
                         border: 'none', fontWeight: 600,
@@ -1826,7 +1888,7 @@ const Landing: React.FC = () => {
               <div style={{ paddingTop: '0.75rem', borderTop: '1px solid #F0F0F0', display: 'flex', justifyContent: 'flex-end' }}>
                 <Button variant="primary" onClick={handleCreateRefactorProject}
                   isLoading={creating}
-                  isDisabled={!targetStack.trim() || (!sourceArchive && githubUrls.length === 0)}
+                  isDisabled={!llmReady || !targetStack.trim() || (!sourceArchive && githubUrls.length === 0)}
                   style={{
                     backgroundColor: '#0066CC', border: 'none', fontWeight: 600,
                     padding: '0.5rem 1.75rem', fontSize: '0.875rem', borderRadius: '10px', color: 'white',
@@ -1963,7 +2025,7 @@ const Landing: React.FC = () => {
                 </Select>
                 <Button variant="primary" onClick={handleCreateImportProject}
                   isLoading={creating}
-                  isDisabled={(!sourceArchive && githubUrls.length === 0) || creating}
+                  isDisabled={!llmReady || (!sourceArchive && githubUrls.length === 0) || creating}
                   style={{
                     backgroundColor: '#3E8635', border: 'none', fontWeight: 600,
                     padding: '0.5rem 1.75rem', fontSize: '0.875rem', borderRadius: '10px', color: 'white',

@@ -44,6 +44,11 @@ describe('Landing — MTA Migration Mode', () => {
       },
     }).as('getBackends');
 
+    cy.intercept('GET', '/api/llm/status', {
+      statusCode: 200,
+      body: { configured: true, source: 'server' },
+    });
+
     mountLanding();
     switchToMigrationMode();
   });

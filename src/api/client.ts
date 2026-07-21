@@ -839,6 +839,41 @@ export async function getLlmConfig(): Promise<LlmConfig> {
   return data;
 }
 
+/** Whether the current user can create LLM jobs (BYOK or server fallback). */
+export interface LlmStatus {
+  configured: boolean;
+  source: 'byok' | 'server' | 'none' | string;
+  hint?: string;
+}
+
+export async function getLlmStatus(): Promise<LlmStatus> {
+  const { data } = await api.get<LlmStatus>('/api/llm/status');
+  return data;
+}
+
+/** Extract a user-facing message from a create-job / API error (incl. llm_not_configured). */
+export function formatJobCreateError(err: unknown, fallback = 'Failed to create project. Please try again.'): string {
+  if (!err || typeof err !== 'object') return fallback;
+  const ax = err as { response?: { data?: { detail?: unknown; error?: string; hint?: string } }; message?: string };
+  const detail = ax.response?.data?.detail;
+  if (detail && typeof detail === 'object' && detail !== null) {
+    const d = detail as { code?: string; message?: string; hint?: string };
+    if (d.code === 'llm_not_configured') {
+      return d.message
+        ? `${d.message}${d.hint ? ` ${d.hint}` : ''}`
+        : 'No LLM API key configured. Go to Settings → API Configuration.';
+    }
+    if (typeof d.message === 'string') return d.message;
+  }
+  if (typeof detail === 'string') return detail;
+  if (typeof ax.response?.data?.error === 'string') {
+    const hint = ax.response.data.hint;
+    return hint ? `${ax.response.data.error} ${hint}` : ax.response.data.error;
+  }
+  if (typeof ax.message === 'string' && ax.message) return ax.message;
+  return fallback;
+}
+
 export async function getLlmModels(): Promise<{ models: string[] }> {
   const { data } = await api.get<{ models: string[] }>('/api/llm/models');
   return data;

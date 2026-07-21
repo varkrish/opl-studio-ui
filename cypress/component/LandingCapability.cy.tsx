@@ -49,6 +49,11 @@ describe('Landing — Capability dropdown', () => {
       body: { configured: false },
     });
 
+    cy.intercept('GET', '/api/llm/status', {
+      statusCode: 200,
+      body: { configured: true, source: 'server' },
+    });
+
     cy.intercept('GET', '/api/workflow/config', {
       statusCode: 200,
       body: {

@@ -4,6 +4,11 @@ All notable changes to OPL Studio UI are documented here.
 
 ## [Unreleased]
 
+### Added
+- **LLM key gate on Build / Import / Migration / Refactor** — Landing loads `/api/llm/status`, warns when unconfigured, disables submit, and links to Settings → API Configuration
+- `getLlmStatus` + `formatJobCreateError` for `llm_not_configured` API responses
+- Cypress component coverage (`LandingLlmGate.cy.tsx`)
+
 ## [2.5.0] - 2026-07-16
 
 ### Configurable workflows
